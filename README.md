@@ -83,6 +83,33 @@ reparto più frequente nelle Posizioni dei suoi ticket, altrimenti "non mappato"
 se contiene righe non valide **non** viene caricato (resta il precedente) e l'errore finisce in
 `sync_state.site_reparto_csv_error`. `v_mapping_coverage` dà la copertura (siti e alert mappati).
 
+## Dashboard (manager → Statistiche)
+Provisionate come codice, in sola lettura (`allowUiUpdates: false`), cartella "Control Room"; la Panoramica è la home.
+Generate da `scripts/build_dashboards.py` → `grafana/dashboards/*.json` (modificare il builder e rigenerare:
+`python -m scripts.build_dashboards`; un test fallisce se i JSON non sono allineati al builder).
+
+| Dashboard | Contenuto |
+|---|---|
+| Panoramica | alert/giorno (con ripetuti), heatmap ora × giorno della settimana (ora di Roma), ticket aperti ora, età del backlog |
+| Siti, acquedotti, reparti | Pareto top-20 siti con quota cumulata, trend settimanale per acquedotto, quota di ripetuti per sito, per acquedotto e per reparto, copertura del mapping |
+| Tempi di gestione | mediana e p90 (solvedate − apertura) per ora di apertura, per acquedotto e per settimana; numero di esclusi senza solvedate |
+| Esiti | Rientrato / Manovra / Altro / **Non classificato** per settimana e quota non classificata; esiti per operatore (solo chiusure tracciate) |
+| Chiamate dal campo | volume settimanale, tempo mediano, aperte ora, per sito |
+
+Ogni dashboard ha in testa **Fonte dati** (GLPI o SINTETICO), **ultima sincronizzazione riuscita** ed errore dell'ultimo
+tentativo. Filtri: acquedotto (tutte), reparto (Siti). Le query leggono solo le viste `v_*`.
+
+### Dataset sintetico (solo sviluppo)
+`scripts/gen_synthetic.py` crea **4.194 ticket inventati** nel GLPI simulato e li passa al vero worker di sync.
+Nell'intestazione del file sono separati i parametri presi dalle cifre note (totale, 194 ALERT OFF, ~800 con Posizione,
+~50% ripetuti, 12 acquedotti, chiusura massiva 20/08 17:42, esiti solo dopo l'adozione) da quelli **inventati**
+(periodo, siti "Sito NNN", reparti "SINT …", profilo orario, distribuzione dei tempi, quote degli esiti, operatori).
+I numeri che produce **non dicono nulla sulla realtà**: servono a vedere che pannelli e regole funzionano.
+Rifiuta di sovrascrivere un database con dati non sintetici (senza `--force`) e lascia l'etichetta "SINTETICO" visibile
+su tutte le dashboard. Screenshot su questo dataset: `docs/screenshots/`.
+
+    DATABASE_URL=postgresql://cr_sync:...@<host>:5432/controlroom python -m scripts.gen_synthetic --seed 42
+
 ## Avvio
     cp .env.example .env   # compila tutto (password: openssl rand -hex 24)
     docker compose up -d --build
@@ -119,6 +146,16 @@ In questo ambiente con Docker reale (Grafana OSS 11.4.0, Postgres 16), con `DEV_
   `v_alert` con esito e operatore, letta da Grafana come `grafana_ro`; GLPI fermo → dati e `last_success_at` invariati,
   errore registrato; Postgres fermo → coda alert 200, il sync si riconnette da solo.
 
+## Cosa è verificato (fase 4)
+- `tests/test_dashboards.py`: JSON allineati al builder; struttura (uid unici, fuso Europe/Rome, riga di freschezza,
+  nessun uso di closedate, solo viste `v_*`); **ogni query di ogni pannello e variabile eseguita come `grafana_ro`** sul
+  dataset sintetico caricato tramite il worker, senza errori e senza risultati vuoti; heatmap sempre con 24 ore; il
+  dataset rispetta i totali dichiarati; il generatore è deterministico e non sovrascrive dati reali.
+- Grafana 11.4 reale nel compose, attraverso il proxy del portale come manager: 5 dashboard caricate dal provisioning,
+  0 errori di query, 0 pannelli "No data" sul periodo del dataset, Panoramica come home di `/stats`.
+  Durante questa verifica sono emersi e sono stati corretti: stat dell'ultima sync vuoto (Grafana non mostra timestamp
+  nei pannelli stat: ora epoch ms), colori-soglia di default fuorvianti, etichette orarie lette come numeri.
+
 ## Cosa non è verificato
 - **Mai provato contro il GLPI reale** (dal sandbox di sviluppo non era raggiungibile): flusso, parametri di ricerca, e
   forma delle risposte seguono la documentazione dell'API legacy e sono testati solo sul mock. Primo test: ambiente
@@ -144,5 +181,6 @@ nessuna procedura dipende solo dall'app.
 
 ## Limiti noti (MVP)
 - Chiusura di gruppo: "Rientrato" chiude tutti i ticket aperti del sito, anche quelli di ore prima.
-- Dashboard Grafana non ancora provisionate (fase 4); nessun annulla dopo la chiusura; nessuna paginazione oltre 1000 ticket aperti nella coda.
+- Nessun annulla dopo la chiusura; nessuna paginazione oltre 1000 ticket aperti nella coda.
+- Dashboard: la tabella Pareto (5 colonne) scorre in orizzontale sotto i ~1600 px di larghezza; nessun alert Grafana configurato.
 - Sessione 12 h; rate limit login in memoria (si azzera al riavvio).
