@@ -15,7 +15,7 @@
 body{margin:0;background:var(--bg);color:var(--tx);font:18px/1.35 "Maven Pro",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased}
 header{color:#fff;display:flex;gap:12px;align-items:center;padding:12px 18px;background:var(--sa-blu);border-bottom:3px solid var(--sa-azzurro);position:sticky;top:0;z-index:5}
 header .brand{display:flex;align-items:center;gap:14px;flex:1;min-width:0}
-header .brand img{height:34px;width:auto;display:block}
+header .brand img{height:38px;width:auto;display:block;filter:drop-shadow(0 0 .35px #fff) drop-shadow(0 0 .35px #fff)}
 header h1{font-size:20px;font-weight:600;letter-spacing:-.01em;margin:0;padding-left:14px;border-left:1px solid #ffffff55;white-space:nowrap}
 header .who{color:#cfe0ef;font-size:15px}
 .btn{border:0;border-radius:var(--r);padding:16px 22px;font-size:19px;font-weight:600;color:#fff;background:var(--acc);cursor:pointer;min-height:56px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
@@ -53,12 +53,19 @@ main{padding:16px;max-width:1100px;margin:0 auto}
 .sites{display:flex;flex-direction:column;gap:6px;margin-top:6px}
 .sites .btn{justify-content:flex-start;text-align:left;font-weight:500}
 .chosen{background:var(--ok);color:#fff;padding:12px 16px;border-radius:10px;margin-top:6px;display:none}
-.login{max-width:380px;margin:12vh auto;box-shadow:var(--ombra);border-top:4px solid var(--sa-azzurro);background:var(--card);padding:26px;border-radius:var(--r)}
+.login{max-width:400px;margin:10vh auto;box-shadow:var(--ombra);border-top:4px solid var(--sa-azzurro);background:var(--card);padding:32px;border-radius:var(--r);display:flex;flex-direction:column;gap:16px}
 .err{color:var(--err);margin-bottom:10px}
-.login .logo{display:block;height:48px;width:auto;margin:0 0 18px}
+.login-head{display:flex;flex-direction:column;align-items:center;text-align:center;padding-bottom:20px;border-bottom:1px solid var(--bordo)}
+.login .logo{display:block;width:240px;height:auto;margin:0 0 16px}
+.login-head h1{margin:0;font-size:24px;font-weight:600;letter-spacing:-.01em}
+.login-head p{margin:4px 0 0;color:var(--mut);font-size:15px}
+.login .f{margin:0}
+.login .btn{width:100%;margin-top:4px}
+.login .err:empty{display:none}
+.login .err{margin:0;padding:10px 12px;border-radius:10px;border:1px solid var(--err);font-size:15px}
 .code{font-variant-numeric:tabular-nums}
 :focus-visible{outline:3px solid var(--sa-azzurro);outline-offset:2px}
-@media(max-width:700px){header{flex-wrap:wrap}header .brand img{height:28px}}
+@media(max-width:700px){header{flex-wrap:wrap}header .brand img{height:30px}}
 button,input,textarea,select{font-family:inherit}
 .badge{white-space:nowrap}
 .theme-btn{min-width:44px;font-size:20px}
@@ -95,6 +102,7 @@ tr.sec td{padding:14px 8px 6px;border-bottom:2px solid var(--line,#ccd);font-siz
 tr.sec-mine td b{color:#2a9d5c}
 tr.sec-others td b{color:#8a9bb0}
 .tech.other{font-weight:600}
+.login .logo-scuro{filter:drop-shadow(0 0 .35px #fff) drop-shadow(0 0 .35px #fff)}
 /* ticket in attesa (manovra registrata, ticket non chiuso) e storico manovre */
 .badge.wait{background:var(--acc);color:#fff;font-size:12px;padding:1px 8px}
 .alarms tr.waiting td{opacity:.8}.alarms tr.grp.waiting td:first-child{border-left-color:var(--acc)}
