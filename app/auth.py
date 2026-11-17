@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from ldap3 import Connection, Server, Tls, SIMPLE
 from ldap3.core.exceptions import LDAPException
 from ldap3.utils.conv import escape_filter_chars
+import os
 import ssl
 
 from .config import settings
@@ -63,6 +64,21 @@ class AuthError(Exception):
     pass
 
 
+def ldap_tls() -> Tls:
+    """TLS verso il DC: certificato sempre verificato (salvo LDAP_VALIDATE_TLS=false, vietato in produzione),
+    contro la CA interna di LDAP_CA_CERT_FILE se impostata, altrimenti contro le CA di sistema."""
+    if not settings.ldap_validate_tls:
+        return Tls(validate=ssl.CERT_NONE)
+    return Tls(validate=ssl.CERT_REQUIRED, ca_certs_file=settings.ldap_ca_cert_file or None)
+
+
+def check_ldap_tls_config() -> None:
+    """All'avvio: un file CA configurato ma assente è un errore (come accounts.E001 di gestione-contratti)."""
+    f = settings.ldap_ca_cert_file
+    if not settings.dev_auth and settings.ldap_validate_tls and f and not os.path.isfile(f):
+        raise RuntimeError(f"LDAP_CA_CERT_FILE non trovato: {f}")
+
+
 def authenticate(username: str, password: str) -> AuthUser:
     username = (username or "").strip().split("\\")[-1].split("@")[0]
     if not username or not password or len(username) > 64:
@@ -76,7 +92,7 @@ def authenticate(username: str, password: str) -> AuthUser:
             raise AuthError("utente non abilitato")
         return AuthUser(username, username.title(), roles)
 
-    tls = Tls(validate=ssl.CERT_REQUIRED if settings.ldap_validate_tls else ssl.CERT_NONE)
+    tls = ldap_tls()
     server = Server(settings.ldap_url, use_ssl=settings.ldap_url.startswith("ldaps"), tls=tls, connect_timeout=5)
     try:
         conn = Connection(server, user=f"{username}@{settings.ldap_domain}", password=password,

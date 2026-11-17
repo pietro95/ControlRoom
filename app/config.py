@@ -34,6 +34,8 @@ class Settings:
     # SOLO sviluppo: ruoli per utente con DEV_AUTH, es. "mbianchi:manager,capo:operator+manager" (default operator)
     dev_roles = os.getenv("DEV_ROLES", "")
     ldap_validate_tls = _b("LDAP_VALIDATE_TLS", True)
+    # certificato (PEM) della CA interna che firma il certificato del DC; vuoto = CA di sistema dell'immagine
+    ldap_ca_cert_file = os.getenv("LDAP_CA_CERT_FILE", "").strip()
     session_secret = os.getenv("SESSION_SECRET", "")
     session_hours = int(os.getenv("SESSION_HOURS", "12"))
     cookie_secure = _b("COOKIE_SECURE", True)
