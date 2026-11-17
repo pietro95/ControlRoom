@@ -18,6 +18,8 @@ class Settings:
     sol_rientrato = int(os.getenv("GLPI_SOLTYPE_RIENTRATO", "1"))
     sol_manovra = int(os.getenv("GLPI_SOLTYPE_MANOVRA", "2"))
     sol_altro = int(os.getenv("GLPI_SOLTYPE_ALTRO", "3"))
+    status_waiting = int(os.getenv("GLPI_STATUS_WAITING", "4"))  # "In attesa"
+    status_resume = int(os.getenv("GLPI_STATUS_RESUME", "2"))  # ripresa dall'attesa: "In carico (assegnato)"
     # URL "nativo" mostrato nel banner di ripiego
     glpi_public_url = os.getenv("GLPI_PUBLIC_URL", glpi_url)
 

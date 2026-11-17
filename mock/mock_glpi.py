@@ -54,7 +54,7 @@ def add_ticket(name: str, date: str, **kw) -> int:
 
 def seed():
     STATE.clear()
-    STATE.update(next=100, tickets={}, solutions=[], sessions=set(), entity=None, fail=False)
+    STATE.update(next=100, tickets={}, solutions=[], followups=[], sessions=set(), entity=None, fail=False)
     pompa = "&lt;p&gt;Tipo allarme: Blocco pompa&lt;br&gt;Oggetto: Pompa P2&lt;br&gt;Descrizione: Intervento termico pompa P2&lt;/p&gt;"
     rows = [
         ("ALERT ON: FNC-IS00400-Campanella", "2026-11-17 08:01:00", pompa),
@@ -196,6 +196,41 @@ async def solution(request: Request, app_token: str = Header(""), session_token:
     return {"id": len(STATE["solutions"])}
 
 
+@app.post("/apirest.php/ITILFollowup")
+async def followup(request: Request, app_token: str = Header(""), session_token: str = Header("")):
+    auth(app_token, session_token)
+    inp = (await request.json())["input"]
+    t = STATE["tickets"].get(inp["items_id"])
+    if not t:
+        raise HTTPException(400, "ERROR_GLPI_ADD")
+    ts = now_local()
+    t["date_mod"] = ts
+    STATE["followups"].append({**inp, "id": len(STATE["followups"]) + 1, "date": ts,
+                               "content": inp["content"].replace("<", "&lt;").replace(">", "&gt;")})
+    return {"id": len(STATE["followups"])}
+
+
+@app.get("/apirest.php/Ticket/{tid}/ITILFollowup")
+async def list_followups(tid: int, app_token: str = Header(""), session_token: str = Header("")):
+    auth(app_token, session_token)
+    if tid not in STATE["tickets"]:
+        raise HTTPException(404, "ERROR_ITEM_NOT_FOUND")
+    return [f for f in STATE["followups"] if f["items_id"] == tid]
+
+
+@app.put("/apirest.php/Ticket/{tid}")
+async def update_ticket(tid: int, request: Request, app_token: str = Header(""), session_token: str = Header("")):
+    auth(app_token, session_token)
+    t = STATE["tickets"].get(tid)
+    if not t:
+        raise HTTPException(404, "ERROR_ITEM_NOT_FOUND")
+    inp = (await request.json())["input"]
+    if "status" in inp:
+        t["status"] = int(inp["status"])
+    t["date_mod"] = now_local()
+    return [{str(tid): True, "message": ""}]
+
+
 @app.post("/apirest.php/Ticket")
 async def create(request: Request, app_token: str = Header(""), session_token: str = Header("")):
     auth(app_token, session_token)
@@ -214,4 +249,4 @@ async def reset():
 
 @app.get("/_test/state")
 async def state():
-    return {"tickets": STATE["tickets"], "solutions": STATE["solutions"], "entity": STATE["entity"]}
+    return {"tickets": STATE["tickets"], "solutions": STATE["solutions"], "followups": STATE["followups"], "entity": STATE["entity"]}

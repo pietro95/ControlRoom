@@ -143,7 +143,23 @@ class GlpiClient:
             return None
         return {"id": int(u["id"]), "name": self._user_label(u.get("firstname"), u.get("realname"), u.get("name"))}
 
+    async def followups(self, ticket_id: int) -> list[dict]:
+        """Storico avanzamenti (ITILFollowup) di un ticket, dal più vecchio."""
+        data = await self._request("GET", f"/Ticket/{int(ticket_id)}/ITILFollowup", params={"range": "0-199"}) or []
+        out = [{"id": int(f.get("id") or 0), "date": f.get("date") or f.get("date_creation"),
+                "content": f.get("content") or ""} for f in data if isinstance(f, dict)]
+        return sorted(out, key=lambda f: (f["date"] or "", f["id"]))
+
     # ---- scrittura ----
+    async def add_followup(self, ticket_id: int, content: str) -> None:
+        await self._request(
+            "POST", "/ITILFollowup",
+            json={"input": {"itemtype": "Ticket", "items_id": ticket_id, "content": content, "is_private": 0}},
+        )
+
+    async def set_status(self, ticket_id: int, status: int) -> None:
+        await self._request("PUT", f"/Ticket/{int(ticket_id)}", json={"input": {"id": ticket_id, "status": status}})
+
     async def add_solution(self, ticket_id: int, solution_type: int, content: str) -> None:
         await self._request(
             "POST", "/ITILSolution",

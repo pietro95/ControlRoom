@@ -50,6 +50,12 @@ def glpi_reason(e: Exception) -> str:
     return f"GLPI ha rifiutato la ricerca: {m[:160]}"
 
 
+def is_waiting(status) -> bool:
+    """Stato GLPI 'In attesa': la ricerca può restituire il codice (4) o l'etichetta tradotta."""
+    v = str(status if status is not None else "").strip().lower()
+    return v == str(settings.status_waiting) or "attesa" in v or v in ("pending", "waiting")
+
+
 def create_app() -> FastAPI:
     check_ldap_tls_config()
     secret = settings.session_secret
@@ -203,7 +209,8 @@ def create_app() -> FastAPI:
                 "ids": [], "items": [], "first": r["opened"], "last": r["opened"],
             })
             g["ids"].append(r["id"])
-            g["items"].append({"id": r["id"], "opened": r["opened"], "descrizione": a.descrizione})
+            g["items"].append({"id": r["id"], "opened": r["opened"], "descrizione": a.descrizione,
+                               "waiting": is_waiting(r.get("status"))})
             if r["opened"] and (not g["first"] or r["opened"] < g["first"]):
                 g["first"] = r["opened"]
             if r["opened"] and (not g["last"] or r["opened"] >= g["last"]):
@@ -214,6 +221,8 @@ def create_app() -> FastAPI:
             g["items"].sort(key=lambda i: i["opened"] or "", reverse=True)
             g["count"] = len(g["ids"])
             g["flapping"] = g["count"] >= settings.flapping_threshold
+            g["waiting_count"] = sum(i["waiting"] for i in g["items"])
+            g["waiting"] = g["waiting_count"] == g["count"]  # gruppo "in attesa" solo se lo sono tutti
         return out
 
     @app.get("/api/queue")
@@ -238,10 +247,7 @@ def create_app() -> FastAPI:
         note = "\n".join(x for x in (clean(r) for r in body.note.splitlines()) if x)  # a capo preservati
         if note_required and len(note) < 3:
             raise HTTPException(422, "nota obbligatoria per questo esito")
-        try:  # il token di servizio può chiudere SOLO ticket attualmente nella coda alert
-            allowed = {i for g in await build_queue(glpi) for i in g["ids"]}
-        except GlpiError:
-            raise HTTPException(502, "GLPI non raggiungibile")
+        allowed = await queue_ids(glpi)  # il token di servizio può chiudere SOLO ticket attualmente nella coda alert
         ids = [i for i in dict.fromkeys(body.ticket_ids) if i in allowed]
         skipped = [i for i in body.ticket_ids if i not in allowed]
         content = label + (f": {note}" if note else ".") + f"\n[Control Room app — operatore: {user['name']} ({user['username']})]"
@@ -256,6 +262,66 @@ def create_app() -> FastAPI:
         store.log(user["username"], user["name"], "resolve",
                   {"outcome": body.outcome, "note": note, "done": done, "failed": failed, "skipped": skipped})
         return {"ok": not failed, "done": done, "failed": failed, "skipped": skipped}
+
+    async def queue_ids(glpi: GlpiClient) -> set[int]:
+        try:
+            return {i for g in await build_queue(glpi) for i in g["ids"]}
+        except GlpiError:
+            raise HTTPException(502, "GLPI non raggiungibile")
+
+    class ProgressIn(BaseModel):
+        ticket_ids: list[int] = Field(min_length=1, max_length=200)
+        note: str = Field(default="", max_length=1000)
+        wait: str = "keep"  # "set" = metti in attesa, "resume" = togli dall'attesa, "keep" = stato invariato
+
+    @app.post("/api/progress", dependencies=[Depends(write_guard)])
+    async def progress(body: ProgressIn, user: dict = Depends(operator_dep), glpi: GlpiClient = Depends(glpi_dep)):
+        """Manovra che NON chiude il ticket: aggiunge un avanzamento (followup GLPI) e opzionalmente
+        mette o toglie il ticket dallo stato 'In attesa'. Il ticket resta nella coda."""
+        if body.wait not in ("keep", "set", "resume"):
+            raise HTTPException(422, "azione attesa non valida")
+        note = "\n".join(x for x in (clean(r) for r in body.note.splitlines()) if x)
+        if len(note) < 3:
+            raise HTTPException(422, "nota obbligatoria")
+        allowed = await queue_ids(glpi)
+        ids = [i for i in dict.fromkeys(body.ticket_ids) if i in allowed]
+        skipped = [i for i in body.ticket_ids if i not in allowed]
+        tag = {"set": " [messo in attesa]", "resume": " [ripreso dall'attesa]", "keep": ""}[body.wait]
+        content = f"Manovra/avanzamento{tag}: {note}\n[Control Room app — operatore: {user['name']} ({user['username']})]"
+        done, failed = [], []
+        for tid in ids:
+            try:
+                await glpi.add_followup(tid, content)
+                if body.wait == "set":
+                    await glpi.set_status(tid, settings.status_waiting)
+                elif body.wait == "resume":
+                    await glpi.set_status(tid, settings.status_resume)
+                done.append(tid)
+            except GlpiError as e:
+                log.warning("progress %s: %s", tid, e)
+                failed.append(tid)
+        store.log(user["username"], user["name"], "progress",
+                  {"wait": body.wait, "note": note, "done": done, "failed": failed, "skipped": skipped})
+        return {"ok": not failed, "done": done, "failed": failed, "skipped": skipped}
+
+    @app.get("/api/history")
+    async def history(ids: str, user: dict = Depends(operator_dep), glpi: GlpiClient = Depends(glpi_dep)):
+        """Storico avanzamenti dei ticket in coda (max 20), dal più recente."""
+        want = [int(x) for x in dict.fromkeys(re.findall(r"\d+", ids))][:20]
+        allowed = await queue_ids(glpi)
+        rows = []
+        try:
+            for tid in (i for i in want if i in allowed):
+                for f in await glpi.followups(tid):
+                    text = html.unescape(html.unescape(f["content"]))
+                    text = re.sub(r"<br\s*/?>|</p>", "\n", text, flags=re.I)
+                    text = re.sub(r"<[^>]+>", "", text).strip()
+                    rows.append({"ticket": tid, "id": f["id"], "date": f["date"], "text": text})
+        except GlpiError as e:
+            log.warning("history: %s", e)
+            raise HTTPException(502, "GLPI non raggiungibile")
+        rows.sort(key=lambda r: (r["date"] or "", r["id"]), reverse=True)
+        return {"rows": rows}
 
     @app.get("/api/sites")
     async def sites(q: str = "", user: dict = Depends(operator_dep), glpi: GlpiClient = Depends(glpi_dep)):
