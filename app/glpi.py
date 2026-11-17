@@ -78,6 +78,11 @@ class GlpiClient:
         raise GlpiError("sessione GLPI non ottenibile")
 
     # ---- lettura ----
+    async def search(self, itemtype: str, params: dict) -> tuple[list[dict], int]:
+        """Ricerca generica: (righe della pagina, totalcount)."""
+        data = await self._request("GET", f"/search/{itemtype}", params=params) or {}
+        return data.get("data", []) or [], int(data.get("totalcount", 0) or 0)
+
     async def open_alerts(self) -> list[dict]:
         """Ticket 'ALERT ON' non risolti dell'entità Control Room."""
         params = {
