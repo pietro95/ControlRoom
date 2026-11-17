@@ -91,6 +91,10 @@ table.alarms{width:100%;border-collapse:collapse;font-size:16px}
 .alarms .empty{padding:40px 0}
 .nowrap{white-space:nowrap}.mut{color:var(--mut)}
 .note.open{display:flex;flex-direction:row;flex-wrap:wrap;gap:8px}.note.open input{flex:1 1 300px}
+tr.sec td{padding:14px 8px 6px;border-bottom:2px solid var(--line,#ccd);font-size:1.02em;background:transparent}
+tr.sec-mine td b{color:#2a9d5c}
+tr.sec-others td b{color:#8a9bb0}
+.tech.other{font-weight:600}
 /* ticket in attesa (manovra registrata, ticket non chiuso) e storico manovre */
 .badge.wait{background:var(--acc);color:#fff;font-size:12px;padding:1px 8px}
 .alarms tr.waiting td{opacity:.8}.alarms tr.grp.waiting td:first-child{border-left-color:var(--acc)}

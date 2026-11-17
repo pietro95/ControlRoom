@@ -217,6 +217,19 @@ def test_take_requires_operator_in_glpi(client, monkeypatch):
     assert r.status_code == 422 and "mrossi" in r.json()["detail"]
 
 
+def test_queue_sections_mine_todo_others(client):
+    login(client)
+    gs = {g["code"]: g for g in client.get("/api/queue").json()["groups"]}
+    assert {g["section"] for g in gs.values()} == {"todo"}
+    client.post("/api/take", json={"ticket_ids": gs["MOE-PA00500"]["ids"]}, headers=H)
+    other = gs["ANC-PA02100"]["ids"][0]
+    mock_glpi.STATE["tickets"][other].update(status=2, tech="lverdi")  # preso da un collega
+    gs = {g["code"]: g for g in client.get("/api/queue").json()["groups"]}
+    assert gs["MOE-PA00500"]["section"] == "mine"
+    assert gs["ANC-PA02100"]["section"] == "others" and gs["ANC-PA02100"]["tech"] == ["lverdi"]
+    assert gs["FNC-IS00400"]["section"] == "todo"
+
+
 def test_progress_keeps_ticket_open_with_history_and_wait(client):
     login(client)
     ids = next(g["ids"] for g in client.get("/api/queue").json()["groups"] if g["oggetto"] == "Pompa P2")
