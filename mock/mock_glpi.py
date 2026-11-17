@@ -167,9 +167,9 @@ async def search_loc(request: Request, app_token: str = Header(""), session_toke
 @app.get("/apirest.php/search/User")
 async def search_user(request: Request, app_token: str = Header(""), session_token: str = Header("")):
     auth(app_token, session_token)
-    text = request.query_params.get("criteria[1][criteria][0][value]", "").lower()
-    data = [{"2": i, "1": lo, "34": ln, "9": fn} for i, lo, ln, fn, act in USERS
-            if act and any(text in x.lower() for x in (lo, ln, fn))]
+    text = request.query_params.get("criteria[0][value]", "").lower()
+    data = [{"2": i, "1": lo, "34": ln, "9": fn, "8": act} for i, lo, ln, fn, act in USERS
+            if any(text in x.lower() for x in (lo, ln, fn))]
     return {"totalcount": len(data), "count": len(data), "data": data}
 
 
