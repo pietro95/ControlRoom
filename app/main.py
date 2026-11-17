@@ -17,7 +17,7 @@ from .auth import MANAGER, OPERATOR, ROLES, AuthError, RateLimiter, authenticate
 from .config import settings
 from .glpi import GlpiClient, GlpiError
 from .grafana_proxy import GrafanaProxy
-from .parsing import clean, parse_alert_body, parse_alert_title
+from .parsing import clean, parse_alert_body, parse_alert_title, parse_call
 
 log = logging.getLogger("controlroom")
 STATIC = Path(__file__).parent / "static"
@@ -197,7 +197,7 @@ def create_app() -> FastAPI:
             else:
                 key = f"#{r['id']}"  # titolo non riconosciuto: mai raggruppato
             g = groups.setdefault(key, {
-                "key": key, "code": s.code if s else f"#{r['id']}",
+                "key": key, "kind": "alert", "code": s.code if s else f"#{r['id']}",
                 "name": s.name if s else clean(r["title"])[:80], "acquedotto": s.acquedotto if s else "—",
                 "tipo": a.tipo, "oggetto": a.oggetto, "descrizione": a.descrizione,
                 "ids": [], "items": [], "first": r["opened"], "last": r["opened"],
@@ -209,6 +209,18 @@ def create_app() -> FastAPI:
             if r["opened"] and (not g["last"] or r["opened"] >= g["last"]):
                 g["last"] = r["opened"]
                 g["descrizione"] = a.descrizione or g["descrizione"]  # la più recente
+        for r in await glpi.open_calls():  # chiamate dal campo: una riga per ticket, mai raggruppate
+            c = parse_call(r["title"], r.get("content", ""))
+            if not c:
+                continue
+            descr = f"{c.descrizione} — chiamante: {c.chiamante}" if c.chiamante else c.descrizione
+            groups[f"call|{r['id']}"] = {
+                "key": f"call|{r['id']}", "kind": "call", "code": c.code or f"#{r['id']}",
+                "name": c.sito or clean(r["title"])[:80], "acquedotto": c.acquedotto,
+                "tipo": "Chiamata", "oggetto": "", "descrizione": descr,
+                "ids": [r["id"]], "items": [{"id": r["id"], "opened": r["opened"], "descrizione": descr}],
+                "first": r["opened"], "last": r["opened"],
+            }
         out = sorted(groups.values(), key=lambda g: g["last"] or "", reverse=True)
         for g in out:
             g["items"].sort(key=lambda i: i["opened"] or "", reverse=True)

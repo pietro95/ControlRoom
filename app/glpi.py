@@ -4,6 +4,7 @@ Usa un account di servizio con profilo limitato all'entità Control Room.
 L'autore reale (operatore AD) viene scritto nel testo e nell'audit locale.
 """
 import asyncio
+import re
 import logging
 from typing import Any
 
@@ -83,14 +84,14 @@ class GlpiClient:
         data = await self._request("GET", f"/search/{itemtype}", params=params) or {}
         return data.get("data", []) or [], int(data.get("totalcount", 0) or 0)
 
-    async def open_alerts(self) -> list[dict]:
-        """Ticket 'ALERT ON' non risolti dell'entità Control Room."""
+    async def _open_by_title(self, text: str) -> list[dict]:
+        """Ticket non risolti dell'entità Control Room il cui titolo contiene `text`."""
         params = {
             "criteria[0][field]": 80, "criteria[0][searchtype]": "equals", "criteria[0][value]": settings.entity_id,
             "criteria[1][link]": "AND", "criteria[1][field]": 12, "criteria[1][searchtype]": "equals",
             "criteria[1][value]": "notold",
             "criteria[2][link]": "AND", "criteria[2][field]": 1, "criteria[2][searchtype]": "contains",
-            "criteria[2][value]": "ALERT ON",
+            "criteria[2][value]": text,
             "forcedisplay[0]": 2, "forcedisplay[1]": 1, "forcedisplay[2]": 12, "forcedisplay[3]": 15,
             "forcedisplay[4]": 21,  # descrizione (corpo) del ticket
             "sort": 15, "order": "DESC", "range": "0-999",
@@ -101,6 +102,15 @@ class GlpiClient:
              "content": r.get("21") or ""}
             for r in (data or {}).get("data", [])
         ]
+
+    async def open_alerts(self) -> list[dict]:
+        """Ticket 'ALERT ON' non risolti dell'entità Control Room."""
+        return await self._open_by_title("ALERT ON")
+
+    async def open_calls(self) -> list[dict]:
+        """Chiamate dal campo ('CHIAMATA:') non risolte dell'entità Control Room."""
+        return [r for r in await self._open_by_title("CHIAMATA")
+                if re.match(r"^\s*CHIAMATA\s*:", r["title"] or "", re.I)]
 
     async def search_locations(self, text: str = "", limit: int = 50) -> list[dict]:
         """Posizioni GLPI (nome completo, campo 1); testo vuoto = prime `limit` in ordine alfabetico."""

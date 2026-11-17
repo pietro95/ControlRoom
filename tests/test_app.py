@@ -147,6 +147,31 @@ def test_new_call(client):
     assert client.post("/api/call", json={**body, "note": "  "}, headers=H).status_code == 422
 
 
+def test_open_calls_in_queue_and_closable(client):
+    login(client)
+    site = client.get("/api/sites?q=casaleno").json()["sites"][0]
+    body = {"location_id": site["id"], "location_name": site["name"], "caller_id": 7, "note": "Porta forzata"}
+    tid = client.post("/api/call", json=body, headers=H).json()["ticket_id"]
+    q = client.get("/api/queue").json()
+    calls = [g for g in q["groups"] if g.get("kind") == "call"]
+    assert [g["ids"] for g in calls] == [[tid]]
+    c = calls[0]
+    assert c["code"] == "FNC-IS00600" and c["acquedotto"] == "FNC" and c["tipo"] == "Chiamata"
+    assert "Porta forzata" in c["descrizione"] and "Bianchi Mario" in c["descrizione"]
+    assert "Control Room app" not in c["descrizione"]
+    r = client.post("/api/resolve", json={"ticket_ids": [tid], "outcome": "altro", "note": "Verificato sul posto"},
+                    headers=H).json()
+    assert r["done"] == [tid]
+    assert not any(g.get("kind") == "call" for g in client.get("/api/queue").json()["groups"])
+
+
+def test_parse_call_without_site_code():
+    from app.parsing import parse_call
+    c = parse_call("CHIAMATA: Potabilizzatori – perdita", "Sito: Potabilizzatori\nChiamante: X (x)\n\nperdita")
+    assert c.code == "" and c.acquedotto == "—" and c.sito == "Potabilizzatori" and c.descrizione == "perdita"
+    assert parse_call("ALERT ON: ANC-PO00100 x", "") is None
+
+
 def test_glpi_session_expiry_recovers(client):
     login(client)
     client.get("/api/queue")
