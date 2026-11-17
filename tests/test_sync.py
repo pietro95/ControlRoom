@@ -138,6 +138,7 @@ def test_portal_to_reporting_end_to_end(db, glpi, monkeypatch, tmp_path):
         app.state.glpi = GlpiClient(transport=httpx.ASGITransport(app=mock_glpi.app))
         c.post("/login", data={"username": "mrossi", "password": "dev"})
         ids = next(g["ids"] for g in c.get("/api/queue").json()["groups"] if g["code"] == "FNC-IS00400")
+        assert c.post("/api/take", json={"ticket_ids": ids}, headers={"X-CR": "1"}).json()["ok"]
         assert c.post("/api/resolve", json={"ticket_ids": ids, "outcome": "manovra", "note": "Riarmo Q3"},
                       headers={"X-CR": "1"}).json()["ok"]
         body = {"location_id": 1, "location_name": "SUD Blufi > BLF-SAP00200 Serbatoio", "caller_id": 7,
