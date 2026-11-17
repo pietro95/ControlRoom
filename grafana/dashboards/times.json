@@ -73,7 +73,7 @@
         "defaults": {
           "color": {
             "mode": "fixed",
-            "fixedColor": "orange"
+            "fixedColor": "#d08a1f"
           }
         },
         "overrides": []
@@ -268,7 +268,11 @@
       "fieldConfig": {
         "defaults": {
           "unit": "m",
-          "min": 0
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#2b8fd6"
+          }
         },
         "overrides": [
           {
@@ -371,7 +375,11 @@
       "fieldConfig": {
         "defaults": {
           "unit": "m",
-          "min": 0
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#2b8fd6"
+          }
         },
         "overrides": []
       },

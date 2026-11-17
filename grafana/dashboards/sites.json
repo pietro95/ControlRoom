@@ -97,7 +97,7 @@
         "defaults": {
           "color": {
             "mode": "fixed",
-            "fixedColor": "orange"
+            "fixedColor": "#d08a1f"
           }
         },
         "overrides": []
@@ -233,7 +233,11 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "min": 0
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#2b8fd6"
+          }
         },
         "overrides": []
       },
@@ -329,7 +333,11 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "min": 0
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#2b8fd6"
+          }
         },
         "overrides": []
       },
@@ -427,7 +435,11 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "min": 0
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#2b8fd6"
+          }
         },
         "overrides": []
       },
@@ -472,7 +484,11 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "min": 0
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#2b8fd6"
+          }
         },
         "overrides": []
       },
@@ -524,15 +540,15 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "#d64545",
                 "value": null
               },
               {
-                "color": "orange",
+                "color": "#d08a1f",
                 "value": 0.5
               },
               {
-                "color": "green",
+                "color": "#2a9d5c",
                 "value": 0.9
               }
             ]

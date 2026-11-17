@@ -96,3 +96,15 @@ def test_app_starts_without_grafana_configured(monkeypatch):
     monkeypatch.setattr(settings, "grafana_url", "http://127.0.0.1:1")  # porta chiusa
     with TestClient(create_app()) as c:
         assert c.get("/healthz").status_code == 200
+
+
+def test_html_pages_get_portal_theme(client):
+    login(client, "capo")
+    r = client.get("/grafana/page.html", headers={"Accept": "text/html", "Accept-Encoding": "gzip"})
+    assert r.status_code == 200
+    assert '<link rel="stylesheet" href="/static/grafana-brand.css"></head>' in r.text
+    assert "<body>identity</body>" in r.text          # HTML richiesto non compresso
+    assert int(r.headers["content-length"]) == len(r.content)
+    assert r.headers["content-security-policy"] == "frame-ancestors 'self'"
+    # le risposte non HTML passano invariate
+    assert "grafana-brand" not in client.get("/grafana/api/x").text

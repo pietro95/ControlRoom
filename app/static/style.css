@@ -6,17 +6,22 @@
 @font-face{font-family:"Maven Pro";font-style:normal;font-weight:500;font-display:swap;src:url("vendor/maven-pro-5.3.0/maven-pro-latin-500-normal.woff2") format("woff2")}
 @font-face{font-family:"Maven Pro";font-style:normal;font-weight:600;font-display:swap;src:url("vendor/maven-pro-5.3.0/maven-pro-latin-600-normal.woff2") format("woff2")}
 @font-face{font-family:"Maven Pro";font-style:normal;font-weight:700;font-display:swap;src:url("vendor/maven-pro-5.3.0/maven-pro-latin-700-normal.woff2") format("woff2")}
-:root{--sa-blu:#003f6b;--sa-azzurro:#5cbbff;--bg:#002640;--card:#00345a;--card2:#0b4a78;--tx:#ffffff;--mut:#b4cbe0;--ok:#177f42;--warn:#9a5800;--bad:#b42318;--acc:#005a94;--r:14px}
+:root{--sa-blu:#003f6b;--sa-azzurro:#5cbbff;--ok:#177f42;--warn:#9a5800;--bad:#b42318;--acc:#005a94;--r:14px;color-scheme:dark;
+  --bg:#002640;--card:#00345a;--card2:#0b4a78;--tx:#ffffff;--mut:#b4cbe0;--bordo:#2f6a96;--err:#ffb4b4;--ombra:none}
+/* Tema chiaro: stessi colori del registro contratti (fondo #F4F6F9, testo #1B2733, secondario 5,5:1). */
+:root[data-theme="light"]{color-scheme:light;--bg:#f4f6f9;--card:#ffffff;--card2:#e8f1f8;--tx:#1b2733;--mut:#5b6b7b;
+  --bordo:#9fb0c2;--err:#b42318;--ombra:0 1px 3px rgba(0,40,70,.12)}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--tx);font:18px/1.35 "Maven Pro",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased}
-header{display:flex;gap:12px;align-items:center;padding:12px 18px;background:var(--sa-blu);border-bottom:3px solid var(--sa-azzurro);position:sticky;top:0;z-index:5}
+header{color:#fff;display:flex;gap:12px;align-items:center;padding:12px 18px;background:var(--sa-blu);border-bottom:3px solid var(--sa-azzurro);position:sticky;top:0;z-index:5}
 header .brand{display:flex;align-items:center;gap:14px;flex:1;min-width:0}
 header .brand img{height:34px;width:auto;display:block}
 header h1{font-size:20px;font-weight:600;letter-spacing:-.01em;margin:0;padding-left:14px;border-left:1px solid #ffffff55;white-space:nowrap}
-header .who{color:var(--mut);font-size:15px}
+header .who{color:#cfe0ef;font-size:15px}
 .btn{border:0;border-radius:var(--r);padding:16px 22px;font-size:19px;font-weight:600;color:#fff;background:var(--acc);cursor:pointer;min-height:56px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
 .btn:active{filter:brightness(.85)}
-.btn.ok{background:var(--ok)}.btn.warn{background:var(--warn)}.btn.bad{background:var(--bad)}.btn.ghost{background:var(--card2)}
+.btn.ok{background:var(--ok)}.btn.warn{background:var(--warn)}.btn.bad{background:var(--bad)}.btn.ghost{background:var(--card2);color:var(--tx)}
+header .btn.ghost{background:#ffffff1f;color:#fff}
 .btn.sm{min-height:44px;padding:8px 14px;font-size:16px}
 main{padding:16px;max-width:1100px;margin:0 auto}
 .banner{background:var(--bad);color:#fff;padding:12px 16px;border-radius:var(--r);margin-bottom:14px;display:none}
@@ -24,7 +29,7 @@ main{padding:16px;max-width:1100px;margin:0 auto}
 .summary{display:flex;gap:10px;align-items:center;margin-bottom:14px;color:var(--mut)}
 .summary b{color:var(--tx);font-size:22px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
-.card{background:var(--card);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:10px;border-left:6px solid var(--acc)}
+.card{background:var(--card);box-shadow:var(--ombra);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:10px;border-left:6px solid var(--acc)}
 .card.flap{border-left-color:var(--warn)}
 .card .top{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
 .code{font-weight:700;font-size:20px}.nm{color:var(--mut)}
@@ -33,20 +38,25 @@ main{padding:16px;max-width:1100px;margin:0 auto}
 .meta{color:var(--mut);font-size:15px}
 .actions{display:flex;gap:10px}.actions .btn{flex:1}
 .note{display:none;gap:8px;flex-direction:column}
-.note input,.f input,.f textarea{width:100%;font-size:18px;padding:12px;border-radius:10px;border:2px solid #2f6a96;background:var(--bg);color:var(--tx)}
+.note input,.f input,.f textarea{width:100%;font-size:18px;padding:12px;border-radius:10px;border:2px solid var(--bordo);background:var(--bg);color:var(--tx)}
 .empty{text-align:center;color:var(--mut);padding:60px 0;font-size:22px}
-.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#000c;padding:12px 20px;border-radius:12px;display:none;z-index:9}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#000d;color:#fff;padding:12px 20px;border-radius:12px;display:none;z-index:9}
 .f{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}.f label{color:var(--mut);font-size:15px}
 .kinds{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin-bottom:14px}
-.kinds .btn{background:var(--card2)}.kinds .btn.sel{background:var(--acc);outline:3px solid var(--sa-azzurro)}
+.kinds .btn{background:var(--card2);color:var(--tx)}.kinds .btn.sel{background:var(--acc);color:#fff;outline:3px solid var(--sa-azzurro)}
 .sites{display:flex;flex-direction:column;gap:6px;margin-top:6px}
 .sites .btn{justify-content:flex-start;text-align:left;font-weight:500}
-.chosen{background:var(--ok);padding:12px 16px;border-radius:10px;margin-top:6px;display:none}
-.login{max-width:380px;margin:12vh auto;border-top:4px solid var(--sa-azzurro);background:var(--card);padding:26px;border-radius:var(--r)}
-.err{color:#ff9b9b;margin-bottom:10px}
+.chosen{background:var(--ok);color:#fff;padding:12px 16px;border-radius:10px;margin-top:6px;display:none}
+.login{max-width:380px;margin:12vh auto;box-shadow:var(--ombra);border-top:4px solid var(--sa-azzurro);background:var(--card);padding:26px;border-radius:var(--r)}
+.err{color:var(--err);margin-bottom:10px}
 .login .logo{display:block;height:48px;width:auto;margin:0 0 18px}
 .code{font-variant-numeric:tabular-nums}
 :focus-visible{outline:3px solid var(--sa-azzurro);outline-offset:2px}
 @media(max-width:700px){header{flex-wrap:wrap}header .brand img{height:28px}}
 button,input,textarea,select{font-family:inherit}
 .badge{white-space:nowrap}
+.theme-btn{min-width:44px;font-size:20px}
+/* Logo: bianco su fondo blu (header, login scuro), a colori su fondo chiaro */
+.logo-chiaro{display:none!important}
+:root[data-theme="light"] .login .logo-scuro{display:none!important}
+:root[data-theme="light"] .login .logo-chiaro{display:block!important}

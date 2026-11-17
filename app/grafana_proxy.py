@@ -10,12 +10,15 @@ Regole di sicurezza applicate su ogni richiesta:
 - il cookie di sessione del portale non viene inoltrato a Grafana;
 - l'account admin locale di Grafana non è raggiungibile via proxy (username riservato);
 - la pagina può essere incorniciata solo dal portale stesso (CSP frame-ancestors 'self').
+
+Tema: nelle pagine HTML di Grafana il proxy aggiunge il foglio di stile del portale
+/static/grafana-brand.css (font Maven Pro e colori Siciliacque, per tema chiaro e scuro).
 """
 import logging
 
 import httpx
 from fastapi import Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
 
 from .config import settings
@@ -33,6 +36,7 @@ DROP_REQUEST_PREFIX = ("x-webauth-", "x-grafana-")
 # header di risposta che il proxy sostituisce
 DROP_RESPONSE = {"x-frame-options", "content-security-policy"}
 PORTAL_COOKIE = "cr_session"
+BRAND_LINK = b'<link rel="stylesheet" href="/static/grafana-brand.css">'
 
 
 class GrafanaProxy:
@@ -63,7 +67,14 @@ class GrafanaProxy:
         if cookies:
             out["Cookie"] = cookies
         out["X-WEBAUTH-USER"] = username
+        if "text/html" in request.headers.get("accept", ""):
+            out["accept-encoding"] = "identity"  # HTML in chiaro, per poter aggiungere il tema
         return out
+
+    @staticmethod
+    def _brand(body: bytes) -> bytes:
+        i = body.find(b"</head>")
+        return body if i < 0 else body[:i] + BRAND_LINK + body[i:]
 
     async def forward(self, request: Request, path: str, user: dict):
         username = user["username"].strip().lower()
@@ -83,10 +94,22 @@ class GrafanaProxy:
                                 status_code=502)
         headers = [(k, v) for k, v in resp.headers.multi_items()
                    if k.lower() not in HOP_BY_HOP and k.lower() not in DROP_RESPONSE]
-        r = StreamingResponse(resp.aiter_raw(), status_code=resp.status_code, background=BackgroundTask(resp.aclose))
-        r.raw_headers = [(k.lower().encode("latin-1"), v.encode("latin-1")) for k, v in headers]
-        if "content-length" in resp.headers and request.method != "HEAD":
-            r.raw_headers.append((b"content-length", resp.headers["content-length"].encode()))
+        html = (request.method == "GET" and resp.status_code == 200
+                and resp.headers.get("content-type", "").startswith("text/html")
+                and resp.headers.get("content-encoding", "identity") == "identity")
+        if html:
+            try:
+                body = self._brand(await resp.aread())
+            finally:
+                await resp.aclose()
+            r = Response(body, status_code=resp.status_code)
+            r.raw_headers = [(k.lower().encode("latin-1"), v.encode("latin-1")) for k, v in headers]
+            r.raw_headers.append((b"content-length", str(len(body)).encode()))
+        else:
+            r = StreamingResponse(resp.aiter_raw(), status_code=resp.status_code, background=BackgroundTask(resp.aclose))
+            r.raw_headers = [(k.lower().encode("latin-1"), v.encode("latin-1")) for k, v in headers]
+            if "content-length" in resp.headers and request.method != "HEAD":
+                r.raw_headers.append((b"content-length", resp.headers["content-length"].encode()))
         r.raw_headers += [(b"content-security-policy", b"frame-ancestors 'self'"),
                           (b"x-frame-options", b"SAMEORIGIN")]
         return r

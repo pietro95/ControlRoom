@@ -20,6 +20,14 @@ Login con account AD (bind LDAP). **Ruoli** dai gruppi AD:
 - Sessioni emesse prima dell'introduzione dei ruoli non sono valide: serve un nuovo login. L'operatore reale è scritto nel testo di soluzione/ticket e in
 un audit locale SQLite (`/api/audit`), perché le scritture su GLPI avvengono con l'account di servizio.
 
+## Tema
+Identità Siciliacque (font Maven Pro, loghi, blu istituzionale) dal repo `gestione-contratti`; linee guida in
+`docs/design/`. Tema **scuro** (predefinito) e **chiaro**, con il pulsante ☀/☾ nell'intestazione; la scelta resta
+nel browser. Grafana segue il tema del portale (parametro `theme`) e riceve font e colori da
+`app/static/grafana-brand.css`, che il proxy aggiunge alle pagine HTML di Grafana. Quel CSS si appoggia a classi
+interne di Grafana (verificato su 11.4.0): da ricontrollare quando si aggiorna l'immagine. Le etichette degli assi
+dei grafici (disegnate su canvas) restano nel font di Grafana. I colori delle serie sono in `scripts/build_dashboards.py`.
+
 ## Setup in GLPI (da fare prima del primo avvio)
 1. Abilita la REST API (Configurazione → Generale → API) e crea un **client API** con App-Token; limita per IP all'host dell'app.
 2. Crea un utente di servizio `svc-controlroom` con **profilo dedicato** (solo entità 14, non ricorsivo): ticket vedere/creare/aggiornare,
