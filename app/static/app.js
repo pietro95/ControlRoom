@@ -26,12 +26,19 @@ function toast(msg, ms = 3500) {
 function fmtTime(s) { // "2026-11-17 09:12:00" -> "09:12"
   return s ? s.slice(11, 16) : "";
 }
+// Voci di menu per ruolo: il server applica comunque i permessi, questo è solo comodità.
+function nav(roles, active) {
+  const items = [];
+  const link = (key, href, label) => h("a", { class: "btn sm " + (active === key ? "" : "ghost"), href }, label);
+  if (roles.includes("operator")) items.push(link("queue", "/", "Allarmi"), link("call", "/call", "Nuova chiamata"));
+  if (roles.includes("manager")) items.push(link("stats", "/stats", "Statistiche"));
+  return items;
+}
 async function header(active) {
   const me = await api("/api/me");
   const hd = h("header", {},
     h("h1", {}, "Control Room"),
-    h("a", { class: "btn sm " + (active === "queue" ? "" : "ghost"), href: "/" }, "Allarmi"),
-    h("a", { class: "btn sm " + (active === "call" ? "" : "ghost"), href: "/call" }, "Nuova chiamata"),
+    ...nav(me.roles || [], active),
     h("span", { class: "who" }, me.name),
     h("form", { method: "post", action: "/logout" }, h("button", { class: "btn sm ghost" }, "Esci")));
   document.body.prepend(hd);

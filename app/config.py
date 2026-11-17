@@ -26,7 +26,13 @@ class Settings:
     ldap_url = os.getenv("LDAP_URL", "ldaps://dc.siciliacque.local")
     ldap_domain = os.getenv("LDAP_DOMAIN", "siciliacque.local")  # per bind UPN utente@dominio
     ldap_base_dn = os.getenv("LDAP_BASE_DN", "DC=siciliacque,DC=local")
-    ldap_operator_group_dn = os.getenv("LDAP_OPERATOR_GROUP_DN", "")  # vuoto = qualunque utente AD
+    # Ruoli dai gruppi AD (DN completi). Un DN vuoto = nessuno riceve quel ruolo.
+    ldap_operator_group_dn = os.getenv("LDAP_OPERATOR_GROUP_DN", "")
+    ldap_manager_group_dn = os.getenv("LDAP_MANAGER_GROUP_DN", "")
+    # true = membership transitiva (gruppi annidati) via LDAP_MATCHING_RULE_IN_CHAIN; false = solo memberOf diretto
+    ldap_nested_groups = _b("LDAP_NESTED_GROUPS", True)
+    # SOLO sviluppo: ruoli per utente con DEV_AUTH, es. "mbianchi:manager,capo:operator+manager" (default operator)
+    dev_roles = os.getenv("DEV_ROLES", "")
     ldap_validate_tls = _b("LDAP_VALIDATE_TLS", True)
     session_secret = os.getenv("SESSION_SECRET", "")
     session_hours = int(os.getenv("SESSION_HOURS", "12"))

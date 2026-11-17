@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import store
-from .auth import AuthError, RateLimiter, authenticate
+from .auth import MANAGER, OPERATOR, ROLES, AuthError, RateLimiter, authenticate
 from .config import settings
 from .glpi import GlpiClient, GlpiError
 from .parsing import clean, parse_alert_title
@@ -63,11 +63,31 @@ def create_app() -> FastAPI:
     def glpi_dep(request: Request) -> GlpiClient:
         return request.app.state.glpi
 
-    def user_dep(request: Request) -> dict:
+    def session_user(request: Request) -> dict | None:
         u = request.session.get("user")
+        # sessioni create prima dei ruoli (senza "roles") non valgono: nuovo login
+        if not u or not isinstance(u.get("roles"), list) or not u["roles"]:
+            return None
+        return u
+
+    def user_dep(request: Request) -> dict:
+        u = session_user(request)
         if not u:
             raise HTTPException(401, "non autenticato")
         return u
+
+    def require_role(role: str):
+        def dep(user: dict = Depends(user_dep)) -> dict:
+            if role not in user["roles"]:
+                raise HTTPException(403, "ruolo non autorizzato")
+            return user
+        return dep
+
+    operator_dep = require_role(OPERATOR)
+    manager_dep = require_role(MANAGER)
+
+    def home_for(user: dict) -> str:
+        return "/" if OPERATOR in user["roles"] else "/stats"
 
     def write_guard(request: Request):
         # difesa CSRF aggiuntiva alla cookie SameSite=Strict: le scritture richiedono un header custom
@@ -83,18 +103,34 @@ def create_app() -> FastAPI:
     async def favicon():
         return Response(status_code=204)
 
-    def page(name: str, request: Request):
-        if not request.session.get("user"):
+    def page(name: str, request: Request, role: str):
+        u = session_user(request)
+        if not u:
             return RedirectResponse("/login", 303)
+        if role not in u["roles"]:
+            # pagina di un altro ruolo: rimanda alla propria home (se è diversa), altrimenti 403
+            home = home_for(u)
+            if home != request.url.path:
+                return RedirectResponse(home, 303)
+            raise HTTPException(403, "ruolo non autorizzato")
         return FileResponse(STATIC / name, headers={"Cache-Control": "no-store"})
 
     @app.get("/")
     async def index(request: Request):
-        return page("index.html", request)
+        return page("index.html", request, OPERATOR)
 
     @app.get("/call")
     async def call_page(request: Request):
-        return page("call.html", request)
+        return page("call.html", request, OPERATOR)
+
+    @app.get("/stats")
+    async def stats_page(request: Request):
+        return page("stats.html", request, MANAGER)
+
+    @app.api_route("/grafana/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    async def grafana(path: str, user: dict = Depends(manager_dep)):
+        # Il reverse proxy verso Grafana arriva nella PR 2; qui conta solo il controllo del ruolo.
+        return JSONResponse({"error": "statistiche non ancora configurate"}, status_code=503)
 
     def login_html(error: str = "") -> HTMLResponse:
         tpl = (STATIC / "login.html").read_text(encoding="utf-8")
@@ -117,9 +153,10 @@ def create_app() -> FastAPI:
             return login_html(f"Accesso negato: {e}")
         limiter.reset(key)
         request.session.clear()
-        request.session["user"] = {"username": u.username, "name": u.display_name}
-        store.log(u.username, u.display_name, "login", {})
-        return RedirectResponse("/", 303)
+        user = {"username": u.username, "name": u.display_name, "roles": [r for r in ROLES if r in u.roles]}
+        request.session["user"] = user
+        store.log(u.username, u.display_name, "login", {"roles": user["roles"]})
+        return RedirectResponse(home_for(user), 303)
 
     @app.post("/logout")
     async def logout(request: Request):
@@ -130,7 +167,7 @@ def create_app() -> FastAPI:
     @app.get("/api/me")
     async def me(user: dict = Depends(user_dep)):
         return {
-            "name": user["name"], "refresh": settings.refresh_seconds,
+            "name": user["name"], "roles": user["roles"], "refresh": settings.refresh_seconds,
             "glpi_url": settings.glpi_public_url,
             "call_kinds": {k: v[0] for k, v in CALL_KINDS.items()},
         }
@@ -157,7 +194,7 @@ def create_app() -> FastAPI:
         return out
 
     @app.get("/api/queue")
-    async def queue(user: dict = Depends(user_dep), glpi: GlpiClient = Depends(glpi_dep)):
+    async def queue(user: dict = Depends(operator_dep), glpi: GlpiClient = Depends(glpi_dep)):
         try:
             groups = await build_queue(glpi)
         except GlpiError as e:
@@ -171,7 +208,7 @@ def create_app() -> FastAPI:
         note: str = Field(default="", max_length=500)
 
     @app.post("/api/resolve", dependencies=[Depends(write_guard)])
-    async def resolve(body: ResolveIn, user: dict = Depends(user_dep), glpi: GlpiClient = Depends(glpi_dep)):
+    async def resolve(body: ResolveIn, user: dict = Depends(operator_dep), glpi: GlpiClient = Depends(glpi_dep)):
         if body.outcome not in OUTCOMES:
             raise HTTPException(422, "esito non valido")
         attr, note_required, label = OUTCOMES[body.outcome]
@@ -198,7 +235,7 @@ def create_app() -> FastAPI:
         return {"ok": not failed, "done": done, "failed": failed, "skipped": skipped}
 
     @app.get("/api/sites")
-    async def sites(q: str = "", user: dict = Depends(user_dep), glpi: GlpiClient = Depends(glpi_dep)):
+    async def sites(q: str = "", user: dict = Depends(operator_dep), glpi: GlpiClient = Depends(glpi_dep)):
         q = clean(q)[:60]
         if len(q) < 2:
             return {"sites": []}
@@ -216,7 +253,7 @@ def create_app() -> FastAPI:
         note: str = Field(default="", max_length=1500)
 
     @app.post("/api/call", dependencies=[Depends(write_guard)])
-    async def new_call(body: CallIn, user: dict = Depends(user_dep), glpi: GlpiClient = Depends(glpi_dep)):
+    async def new_call(body: CallIn, user: dict = Depends(operator_dep), glpi: GlpiClient = Depends(glpi_dep)):
         if body.kind not in CALL_KINDS:
             raise HTTPException(422, "tipo non valido")
         label, urgency = CALL_KINDS[body.kind]

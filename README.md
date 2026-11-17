@@ -9,7 +9,15 @@ Interfaccia a pulsanti sopra GLPI 11 (REST API legacy). Due schermate:
 - **Nuova chiamata**: ricerca sito → tipo (pulsanti) → chiamante → ticket con titolo `CHIAMATA: <codice> – <tipo>`,
   origine Telefono, posizione e urgenza valorizzate.
 
-Login con account AD (bind LDAP) + gruppo abilitato. L'operatore reale è scritto nel testo di soluzione/ticket e in
+Login con account AD (bind LDAP). **Ruoli** dai gruppi AD:
+- `LDAP_OPERATOR_GROUP_DN` → **operatore**: Allarmi + Nuova chiamata (unico ruolo che scrive su GLPI).
+- `LDAP_MANAGER_GROUP_DN` → **manager**: sezione Statistiche, sola lettura. `/api/resolve`, `/api/call`, `/api/queue`,
+  `/api/sites` rispondono 403.
+- In entrambi i gruppi → entrambe le viste. In nessuno → accesso negato. Un DN vuoto non assegna quel ruolo a nessuno.
+- `LDAP_NESTED_GROUPS=true` (default) conta anche i gruppi annidati (`LDAP_MATCHING_RULE_IN_CHAIN`, specifico di AD,
+  una query per ruolo); `false` usa solo `memberOf` diretto.
+- `/grafana/*` è riservato ai manager (il proxy verso Grafana arriva nella fase successiva; ora risponde 503).
+- Sessioni emesse prima dell'introduzione dei ruoli non sono valide: serve un nuovo login. L'operatore reale è scritto nel testo di soluzione/ticket e in
 un audit locale SQLite (`/api/audit`), perché le scritture su GLPI avvengono con l'account di servizio.
 
 ## Setup in GLPI (da fare prima del primo avvio)
@@ -27,17 +35,21 @@ Metti davanti un reverse proxy con TLS (cookie `Secure`, `SameSite=Strict`). Ret
 
 ## Sviluppo / test
     pip install -r requirements-dev.txt
-    pytest                                   # 11 test, GLPI simulato in-process
+    pytest                                   # GLPI e LDAP simulati in-process
     uvicorn mock.mock_glpi:app --port 9000   # GLPI finto
     GLPI_URL=http://localhost:9000 GLPI_APP_TOKEN=a GLPI_USER_TOKEN=u DEV_AUTH=1 \
       uvicorn app.main:create_app --factory --port 8000    # login: qualunque utente, password "dev"
-`DEV_AUTH=1` disattiva l'AD: **mai in produzione**.
+`DEV_AUTH=1` disattiva l'AD: **mai in produzione**. Ruoli in sviluppo: `DEV_ROLES="capo:manager,both:operator+manager"`
+(gli utenti non elencati sono operatori).
 
 ## Cosa non è verificato
 - **Mai provato contro il GLPI reale** (dal sandbox di sviluppo non era raggiungibile): flusso, parametri di ricerca, e
   forma delle risposte seguono la documentazione dell'API legacy e sono testati solo sul mock. Primo test: ambiente
   di prova o ticket di prova, con `DEV_AUTH` spento.
-- **Login AD**: bind UPN e verifica gruppo (`memberOf`, senza gruppi annidati) non testati su un DC reale.
+- **Login AD e ruoli**: bind UPN, query `memberOf:1.2.840.113556.1.4.1941:=<DN>` per i gruppi annidati e mapping
+  ruoli testati solo con una connessione LDAP simulata (`tests/test_roles.py`). Da verificare su DC reale: che l'account
+  in un gruppo annidato ottenga il ruolo, che i DN in `.env` coincidano esattamente con quelli dei gruppi, e i tempi
+  della query IN_CHAIN (su alberi grandi può essere lenta).
 - Il filtro stato `notold` e la ricerca posizioni per testo (campo 1) vanno confermati sul vostro GLPI.
 
 ## Ripiego
