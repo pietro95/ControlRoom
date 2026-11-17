@@ -103,3 +103,10 @@ tr.sec-mine td b{color:#2a9d5c}
 tr.sec-others td b{color:#8a9bb0}
 .tech.other{font-weight:600}
 .login .logo-scuro{filter:drop-shadow(0 0 .35px #fff) drop-shadow(0 0 .35px #fff)}
+/* ticket in attesa (manovra registrata, ticket non chiuso) e storico manovre */
+.badge.wait{background:var(--acc);color:#fff;font-size:12px;padding:1px 8px}
+.alarms tr.waiting td{opacity:.8}.alarms tr.grp.waiting td:first-child{border-left-color:var(--acc)}
+.hist{margin:0 0 10px;padding:8px 12px;border-left:3px solid var(--acc);background:var(--card2);border-radius:8px;font-size:14px}
+.hist-t{font-weight:700;margin-bottom:4px}
+.hist-r{display:flex;gap:12px;padding:3px 0;border-top:1px solid var(--bordo)}.hist-r:first-of-type{border-top:0}
+.hist-x{white-space:pre-wrap;flex:1}
