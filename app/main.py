@@ -39,6 +39,17 @@ async def lifespan(app: FastAPI):
     await app.state.grafana.aclose()
 
 
+def glpi_reason(e: Exception) -> str:
+    """Messaggio breve per l'operatore: distingue GLPI irraggiungibile da richiesta rifiutata."""
+    m = str(e)
+    if "non raggiungibile" in m:
+        return "GLPI non raggiungibile"
+    code = re.search(r"-> (\d{3})", m)
+    if code and code.group(1) in ("401", "403"):
+        return f"GLPI ha rifiutato la ricerca ({code.group(1)}): permessi dell'account di servizio insufficienti"
+    return f"GLPI ha rifiutato la ricerca: {m[:160]}"
+
+
 def create_app() -> FastAPI:
     check_ldap_tls_config()
     secret = settings.session_secret
@@ -249,22 +260,20 @@ def create_app() -> FastAPI:
     @app.get("/api/sites")
     async def sites(q: str = "", user: dict = Depends(operator_dep), glpi: GlpiClient = Depends(glpi_dep)):
         q = clean(q)[:60]
-        if len(q) < 2:
-            return {"sites": []}
         try:
             return {"sites": await glpi.search_locations(q)}
-        except GlpiError:
-            return JSONResponse({"sites": [], "error": "GLPI non raggiungibile"}, status_code=502)
+        except GlpiError as e:
+            log.warning("search_locations: %s", e)
+            return JSONResponse({"sites": [], "error": glpi_reason(e)}, status_code=502)
 
     @app.get("/api/users")
     async def users(q: str = "", user: dict = Depends(operator_dep), glpi: GlpiClient = Depends(glpi_dep)):
         q = clean(q)[:60]
-        if len(q) < 2:
-            return {"users": []}
         try:
             return {"users": await glpi.search_users(q)}
-        except GlpiError:
-            return JSONResponse({"users": [], "error": "GLPI non raggiungibile"}, status_code=502)
+        except GlpiError as e:
+            log.warning("search_users: %s", e)
+            return JSONResponse({"users": [], "error": glpi_reason(e)}, status_code=502)
 
     class CallIn(BaseModel):
         location_id: int | None = None

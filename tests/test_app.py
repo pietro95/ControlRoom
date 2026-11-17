@@ -129,6 +129,8 @@ def test_new_call(client):
     users = client.get("/api/users?q=bianc").json()["users"]
     assert users == [{"id": 7, "name": "Bianchi Mario (mbianchi)"}]
     assert client.get("/api/users?q=neri").json()["users"] == []  # disattivato
+    assert len(client.get("/api/users").json()["users"]) == 2  # tendina aperta senza testo: tutti gli attivi
+    assert len(client.get("/api/sites").json()["sites"]) == 3
     body = {"location_id": sites[0]["id"], "location_name": sites[0]["name"], "caller_id": 7,
             "note": "Porta forzata\nlucchetto rotto"}
     r = client.post("/api/call", json=body, headers=H).json()
