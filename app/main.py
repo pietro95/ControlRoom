@@ -23,15 +23,6 @@ log = logging.getLogger("controlroom")
 STATIC = Path(__file__).parent / "static"
 limiter = RateLimiter()
 
-# Tipi di chiamata dal campo: chiave -> (etichetta, urgenza GLPI 1-5)
-CALL_KINDS = {
-    "elettrico": ("Guasto elettrico", 3),
-    "idraulico": ("Guasto idraulico / perdita", 3),
-    "intrusione": ("Intrusione / sicurezza", 4),
-    "energia": ("Mancanza energia", 4),
-    "strumentale": ("Strumentazione / telecontrollo", 3),
-    "altro": ("Altro", 3),
-}
 OUTCOMES = {  # esito -> (id tipo soluzione, nota obbligatoria, testo)
     "rientrato": ("sol_rientrato", False, "Allarme rientrato"),
     "manovra": ("sol_manovra", True, "Manovra eseguita"),
@@ -177,7 +168,6 @@ def create_app() -> FastAPI:
         return {
             "name": user["name"], "roles": user["roles"], "refresh": settings.refresh_seconds,
             "glpi_url": settings.glpi_public_url,
-            "call_kinds": {k: v[0] for k, v in CALL_KINDS.items()},
         }
 
     async def build_queue(glpi: GlpiClient) -> list[dict]:
@@ -234,7 +224,7 @@ def create_app() -> FastAPI:
         if body.outcome not in OUTCOMES:
             raise HTTPException(422, "esito non valido")
         attr, note_required, label = OUTCOMES[body.outcome]
-        note = clean(body.note)
+        note = "\n".join(x for x in (clean(r) for r in body.note.splitlines()) if x)  # a capo preservati
         if note_required and len(note) < 3:
             raise HTTPException(422, "nota obbligatoria per questo esito")
         try:  # il token di servizio può chiudere SOLO ticket attualmente nella coda alert
@@ -266,33 +256,43 @@ def create_app() -> FastAPI:
         except GlpiError:
             return JSONResponse({"sites": [], "error": "GLPI non raggiungibile"}, status_code=502)
 
+    @app.get("/api/users")
+    async def users(q: str = "", user: dict = Depends(operator_dep), glpi: GlpiClient = Depends(glpi_dep)):
+        q = clean(q)[:60]
+        if len(q) < 2:
+            return {"users": []}
+        try:
+            return {"users": await glpi.search_users(q)}
+        except GlpiError:
+            return JSONResponse({"users": [], "error": "GLPI non raggiungibile"}, status_code=502)
+
     class CallIn(BaseModel):
         location_id: int | None = None
         location_name: str = Field(default="", max_length=200)
-        kind: str
-        caller: str = Field(min_length=2, max_length=120)
-        phone: str = Field(default="", max_length=40)
-        note: str = Field(default="", max_length=1500)
+        caller_id: int | None = None
+        note: str = Field(min_length=3, max_length=1500)
 
     @app.post("/api/call", dependencies=[Depends(write_guard)])
     async def new_call(body: CallIn, user: dict = Depends(operator_dep), glpi: GlpiClient = Depends(glpi_dep)):
-        if body.kind not in CALL_KINDS:
-            raise HTTPException(422, "tipo non valido")
-        label, urgency = CALL_KINDS[body.kind]
         loc = clean(body.location_name)
         if not body.location_id or not loc:
             raise HTTPException(422, "sito obbligatorio")
         m = re.search(r"[A-Z]{3}-[A-Z0-9]+", loc.upper())
         site_tag = m.group(0) if m else loc[:50]
-        title = f"CHIAMATA: {site_tag} – {label}"
-        lines = [f"Sito: {loc}", f"Tipo: {label}", f"Chiamante: {clean(body.caller)}"]
-        if clean(body.phone):
-            lines.append(f"Recapito: {clean(body.phone)}")
-        if clean(body.note):
-            lines += ["", clean(body.note)]
-        lines += ["", f"[Control Room app — operatore: {user['name']} ({user['username']})]"]
+        note = "\n".join(x for x in (clean(r) for r in body.note.splitlines()) if x)  # a capo preservati
+        if len(note) < 3:
+            raise HTTPException(422, "descrizione obbligatoria")
+        if not body.caller_id:
+            raise HTTPException(422, "chiamante obbligatorio")
+        first = note.splitlines()[0][:60]
+        title = f"CHIAMATA: {site_tag} – {first}"
         try:
-            tid = await glpi.create_call(title, "\n".join(lines), body.location_id, urgency)
+            caller = await glpi.get_user(body.caller_id)  # nome dal GLPI, non dal client
+            if not caller:
+                raise HTTPException(422, "chiamante non trovato in GLPI")
+            lines = [f"Sito: {loc}", f"Chiamante: {caller['name']}", "", note,
+                     "", f"[Control Room app — operatore: {user['name']} ({user['username']})]"]
+            tid = await glpi.create_call(title, "\n".join(lines), body.location_id, requester_id=caller["id"])
         except GlpiError as e:
             log.warning("create_call: %s", e)
             store.log(user["username"], user["name"], "call_fail", {"title": title})

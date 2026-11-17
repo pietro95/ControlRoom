@@ -10,8 +10,9 @@ Interfaccia a pulsanti sopra GLPI 11 (REST API legacy). Due schermate:
   `app/parsing.py:_KEYS`); in mancanza, descrizione = prima riga del testo. I gruppi con più ticket si espandono
   (clic sulla riga) e mostrano i singoli ticket con link a GLPI. **Rientrato** / **Manovra** (nota obbligatoria)
   chiudono l'intero gruppo o il singolo ticket. I titoli non riconosciuti non si raggruppano mai.
-- **Nuova chiamata**: ricerca sito → tipo (pulsanti) → chiamante → ticket con titolo `CHIAMATA: <codice> – <tipo>`,
-  origine Telefono, posizione e urgenza valorizzate.
+- **Nuova chiamata**: sito (ricerca tra le Posizioni GLPI) → chiamante (ricerca tra gli Utenti GLPI attivi, impostato
+  come richiedente del ticket) → descrizione. Titolo `CHIAMATA: <codice> – <prima riga della descrizione>`,
+  origine Telefono, posizione valorizzata. L'account di servizio GLPI deve avere lettura sugli Utenti.
 
 Login con account AD: **bind LDAP con le credenziali dell'utente stesso** (UPN `utente@dominio`), poi, sulla stessa
 connessione, lettura del suo `displayName` e verifica dei gruppi. **Nessun account di servizio**: non c'è un segreto LDAP

@@ -110,6 +110,40 @@ class GlpiClient:
         data = await self._request("GET", "/search/Location", params=params)
         return [{"id": int(r["2"]), "name": r["1"]} for r in (data or {}).get("data", [])]
 
+    @staticmethod
+    def _user_label(first: str | None, last: str | None, login: str | None) -> str:
+        full = " ".join(x for x in (last, first) if x)
+        return f"{full} ({login})" if full and login else (full or login or "")
+
+    async def search_users(self, text: str, limit: int = 20) -> list[dict]:
+        """Utenti GLPI attivi per login, cognome o nome (campi 1, 34, 9; 8 = attivo)."""
+        params = {
+            "criteria[0][field]": 8, "criteria[0][searchtype]": "equals", "criteria[0][value]": 1,
+            "criteria[1][link]": "AND",
+            "criteria[1][criteria][0][field]": 34, "criteria[1][criteria][0][searchtype]": "contains",
+            "criteria[1][criteria][0][value]": text,
+            "criteria[1][criteria][1][link]": "OR", "criteria[1][criteria][1][field]": 9,
+            "criteria[1][criteria][1][searchtype]": "contains", "criteria[1][criteria][1][value]": text,
+            "criteria[1][criteria][2][link]": "OR", "criteria[1][criteria][2][field]": 1,
+            "criteria[1][criteria][2][searchtype]": "contains", "criteria[1][criteria][2][value]": text,
+            "forcedisplay[0]": 2, "forcedisplay[1]": 1, "forcedisplay[2]": 34, "forcedisplay[3]": 9,
+            "sort": 34, "order": "ASC", "range": f"0-{limit - 1}",
+        }
+        data = await self._request("GET", "/search/User", params=params)
+        return [{"id": int(r["2"]), "name": self._user_label(r.get("9"), r.get("34"), r.get("1"))}
+                for r in (data or {}).get("data", [])]
+
+    async def get_user(self, user_id: int) -> dict | None:
+        try:
+            u = await self._request("GET", f"/User/{int(user_id)}")
+        except GlpiError as e:
+            if "-> 404" in str(e):
+                return None
+            raise
+        if not u or not u.get("is_active", 1) or u.get("is_deleted"):
+            return None
+        return {"id": int(u["id"]), "name": self._user_label(u.get("firstname"), u.get("realname"), u.get("name"))}
+
     # ---- scrittura ----
     async def add_solution(self, ticket_id: int, solution_type: int, content: str) -> None:
         await self._request(
@@ -118,13 +152,16 @@ class GlpiClient:
                             "solutiontypes_id": solution_type, "content": content}},
         )
 
-    async def create_call(self, title: str, content: str, location_id: int | None, urgency: int = 3) -> int:
+    async def create_call(self, title: str, content: str, location_id: int | None, urgency: int = 3,
+                          requester_id: int | None = None) -> int:
         inp: dict[str, Any] = {
             "name": title, "content": content, "entities_id": settings.entity_id,
             "type": 1, "requesttypes_id": settings.request_type_phone, "urgency": urgency,
         }
         if location_id:
             inp["locations_id"] = location_id
+        if requester_id:
+            inp["_users_id_requester"] = requester_id
         res = await self._request("POST", "/Ticket", json={"input": inp})
         return int(res["id"])
 

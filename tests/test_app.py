@@ -126,16 +126,23 @@ def test_new_call(client):
     login(client)
     sites = client.get("/api/sites?q=casaleno").json()["sites"]
     assert sites and "FNC-IS00600" in sites[0]["name"]
-    body = {"location_id": sites[0]["id"], "location_name": sites[0]["name"], "kind": "intrusione",
-            "caller": "Mario Bianchi", "phone": "3331112222", "note": "porta forzata"}
+    users = client.get("/api/users?q=bianc").json()["users"]
+    assert users == [{"id": 7, "name": "Bianchi Mario (mbianchi)"}]
+    assert client.get("/api/users?q=neri").json()["users"] == []  # disattivato
+    body = {"location_id": sites[0]["id"], "location_name": sites[0]["name"], "caller_id": 7,
+            "note": "Porta forzata\nlucchetto rotto"}
     r = client.post("/api/call", json=body, headers=H).json()
-    assert r["title"] == "CHIAMATA: FNC-IS00600 – Intrusione / sicurezza"
+    assert r["title"] == "CHIAMATA: FNC-IS00600 – Porta forzata"
     t = mock_glpi.STATE["tickets"][r["ticket_id"]]
     inp = t["input"]
-    assert inp["requesttypes_id"] == 8 and inp["locations_id"] == 2 and inp["entities_id"] == 14 and inp["urgency"] == 4
-    assert "Mario Bianchi" in t["content"] and "mrossi" in t["content"]
+    assert inp["requesttypes_id"] == 8 and inp["locations_id"] == 2 and inp["entities_id"] == 14
+    assert inp["_users_id_requester"] == 7
+    assert "Bianchi Mario" in t["content"] and "lucchetto" in t["content"] and "mrossi" in t["content"]
     assert client.post("/api/call", json={**body, "location_id": None}, headers=H).status_code == 422
-    assert client.post("/api/call", json={**body, "kind": "boh"}, headers=H).status_code == 422
+    assert client.post("/api/call", json={**body, "caller_id": None}, headers=H).status_code == 422
+    assert client.post("/api/call", json={**body, "caller_id": 9}, headers=H).status_code == 422
+    assert client.post("/api/call", json={**body, "caller_id": 999}, headers=H).status_code == 422
+    assert client.post("/api/call", json={**body, "note": "  "}, headers=H).status_code == 422
 
 
 def test_glpi_session_expiry_recovers(client):
@@ -154,5 +161,5 @@ def test_glpi_down_gives_502_not_crash(client):
     client.app.state.glpi = GlpiClient(transport=httpx.MockTransport(boom))
     r = client.get("/api/queue")
     assert r.status_code == 502 and r.json()["ok"] is False
-    body = {"location_id": 2, "location_name": "x FNC-IS00600", "kind": "altro", "caller": "Mario"}
+    body = {"location_id": 2, "location_name": "x FNC-IS00600", "caller_id": 7, "note": "test"}
     assert client.post("/api/call", json=body, headers=H).status_code == 502
