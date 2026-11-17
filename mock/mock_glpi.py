@@ -119,6 +119,22 @@ def _match(t: dict, c: dict) -> bool:
     raise HTTPException(400, f"criterio non simulato: {c}")
 
 
+SEARCH_OPTIONS = {  # come GLPI 10/11 (solo i campi usati), per sync.check_glpi
+    "1": ("Titolo", "glpi_tickets", "name"), "2": ("ID", "glpi_tickets", "id"),
+    "9": ("Origine della richiesta", "glpi_requesttypes", "name"), "12": ("Stato", "glpi_tickets", "status"),
+    "15": ("Data di apertura", "glpi_tickets", "date"), "16": ("Data di chiusura", "glpi_tickets", "closedate"),
+    "17": ("Data di risoluzione", "glpi_tickets", "solvedate"), "19": ("Ultima modifica", "glpi_tickets", "date_mod"),
+    "23": ("Tipo di soluzione", "glpi_solutiontypes", "name"), "24": ("Soluzione", "glpi_itilsolutions", "content"),
+    "80": ("Entità", "glpi_entities", "completename"), "83": ("Posizione", "glpi_locations", "completename"),
+}
+
+
+@app.get("/apirest.php/listSearchOptions/Ticket")
+async def list_search_options(app_token: str = Header(""), session_token: str = Header("")):
+    auth(app_token, session_token)
+    return {"common": "Caratteristiche", **{k: {"name": n, "table": t, "field": f} for k, (n, t, f) in SEARCH_OPTIONS.items()}}
+
+
 @app.get("/apirest.php/search/Ticket")
 async def search_ticket(request: Request, app_token: str = Header(""), session_token: str = Header("")):
     auth(app_token, session_token)
