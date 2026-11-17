@@ -1,0 +1,13 @@
+# Dashboard versionate in grafana/dashboards (generate da scripts/build_dashboards.py), non modificabili da UI.
+apiVersion: 1
+providers:
+  - name: controlroom
+    orgId: 1
+    folder: Control Room
+    folderUid: controlroom
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 60
+    options:
+      path: /var/lib/grafana/dashboards

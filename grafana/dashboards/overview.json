@@ -1,0 +1,495 @@
+{
+  "uid": "cr-overview",
+  "title": "Control Room – Panoramica",
+  "tags": [
+    "controlroom"
+  ],
+  "timezone": "Europe/Rome",
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5m",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "acquedotto",
+        "label": "Acquedotto",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "reporting"
+        },
+        "query": "SELECT DISTINCT coalesce(acquedotto, '—') FROM v_alert ORDER BY 1",
+        "definition": "SELECT DISTINCT coalesce(acquedotto, '—') FROM v_alert ORDER BY 1",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "sort": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Fonte dati",
+      "description": "'GLPI' in produzione. Se compare SINTETICO i numeri sono generati da scripts/gen_synthetic.py.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 10,
+        "h": 3
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT dataset_label AS \"Fonte\" FROM v_sync_status",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/"
+        }
+      },
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "Ultima sincronizzazione riuscita",
+      "description": "I grafici mostrano i dati fino a questo momento. Se GLPI non risponde il valore smette di avanzare.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 10,
+        "y": 0,
+        "w": 7,
+        "h": 3
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT extract(epoch FROM last_success_at) * 1000 AS \"Ultima sync\" FROM v_sync_status",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeFromNow"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        }
+      },
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "Errore ultimo tentativo",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 17,
+        "y": 0,
+        "w": 7,
+        "h": 3
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT coalesce(last_error, 'nessuno') AS \"Errore\" FROM v_sync_status",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/"
+        }
+      },
+      "id": 3
+    },
+    {
+      "type": "stat",
+      "title": "Alert nel periodo",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT count(*) AS \"Alert\" FROM v_alert WHERE $__timeFilter(opened_at) AND coalesce(acquedotto, '—') IN ($acquedotto)",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "none",
+        "colorMode": "none"
+      },
+      "id": 4
+    },
+    {
+      "type": "stat",
+      "title": "Quota ripetuti (≤ finestra)",
+      "description": "Alert sullo stesso sito entro la finestra configurata (default 60 min) dal precedente.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 3,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT avg(is_repeat::int) AS \"Ripetuti\" FROM v_alert WHERE $__timeFilter(opened_at) AND coalesce(acquedotto, '—') IN ($acquedotto)",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "none",
+        "colorMode": "none"
+      },
+      "id": 5
+    },
+    {
+      "type": "stat",
+      "title": "Ticket aperti ora",
+      "description": "Alert con stato GLPI non risolto, indipendentemente dal periodo selezionato.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 3,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT count(*) AS \"Aperti\" FROM v_backlog WHERE coalesce(acquedotto, '—') IN ($acquedotto)",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "none",
+        "colorMode": "none"
+      },
+      "id": 6
+    },
+    {
+      "type": "stat",
+      "title": "Età mediana backlog",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 3,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY age_hours) AS \"Età\" FROM v_backlog WHERE coalesce(acquedotto, '—') IN ($acquedotto)",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h"
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "none",
+        "colorMode": "none"
+      },
+      "id": 7
+    },
+    {
+      "type": "timeseries",
+      "title": "Alert al giorno",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT (day_local::timestamp AT TIME ZONE 'Europe/Rome') AS time, count(*) AS \"Alert\", count(*) FILTER (WHERE is_repeat) AS \"di cui ripetuti\" FROM v_alert WHERE $__timeFilter(opened_at) AND coalesce(acquedotto, '—') IN ($acquedotto) GROUP BY 1 ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "barAlignment": 0
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {},
+      "id": 8
+    },
+    {
+      "type": "table",
+      "title": "Alert per ora del giorno × giorno della settimana (ora di Roma)",
+      "description": "Heatmap: ogni cella è il numero di alert aperti in quell'ora e giorno nel periodo selezionato.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 16,
+        "h": 22
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT lpad(h.hour_local::text, 2, '0') || ':00' AS \"Ora\", count(*) FILTER (WHERE dow_local = 1) AS \"Lun\", count(*) FILTER (WHERE dow_local = 2) AS \"Mar\", count(*) FILTER (WHERE dow_local = 3) AS \"Mer\", count(*) FILTER (WHERE dow_local = 4) AS \"Gio\", count(*) FILTER (WHERE dow_local = 5) AS \"Ven\", count(*) FILTER (WHERE dow_local = 6) AS \"Sab\", count(*) FILTER (WHERE dow_local = 7) AS \"Dom\" FROM generate_series(0, 23) h(hour_local) LEFT JOIN v_alert a ON a.hour_local = h.hour_local AND $__timeFilter(opened_at) AND coalesce(acquedotto, '—') IN ($acquedotto) GROUP BY h.hour_local ORDER BY h.hour_local",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "color-background",
+              "mode": "basic"
+            },
+            "align": "center"
+          },
+          "color": {
+            "mode": "continuous-GrYlRd"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ora"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "id": 9
+    },
+    {
+      "type": "barchart",
+      "title": "Età del backlog (ticket aperti ora)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 15,
+        "w": 8,
+        "h": 22
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT b.fascia AS \"Età\", count(v.id) AS \"Ticket\" FROM (VALUES (1, '< 1 h'), (2, '1-4 h'), (3, '4-24 h'), (4, '1-7 gg'), (5, '> 7 gg')) b(ord, fascia) LEFT JOIN (SELECT id, CASE WHEN age_hours < 1 THEN 1 WHEN age_hours < 4 THEN 2 WHEN age_hours < 24 THEN 3 WHEN age_hours < 168 THEN 4 ELSE 5 END AS ord FROM v_backlog WHERE coalesce(acquedotto, '—') IN ($acquedotto)) v USING (ord) GROUP BY b.ord, b.fascia ORDER BY b.ord",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "auto",
+        "showValue": "auto",
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "xTickLabelRotation": -45
+      },
+      "id": 10
+    }
+  ],
+  "links": [
+    {
+      "title": "Control Room",
+      "type": "dashboards",
+      "tags": [
+        "controlroom"
+      ],
+      "asDropdown": false
+    }
+  ]
+}

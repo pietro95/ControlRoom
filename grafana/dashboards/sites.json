@@ -1,0 +1,566 @@
+{
+  "uid": "cr-sites",
+  "title": "Control Room – Siti, acquedotti, reparti",
+  "tags": [
+    "controlroom"
+  ],
+  "timezone": "Europe/Rome",
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5m",
+  "time": {
+    "from": "now-180d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "acquedotto",
+        "label": "Acquedotto",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "reporting"
+        },
+        "query": "SELECT DISTINCT coalesce(acquedotto, '—') FROM v_alert ORDER BY 1",
+        "definition": "SELECT DISTINCT coalesce(acquedotto, '—') FROM v_alert ORDER BY 1",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "sort": 1
+      },
+      {
+        "name": "reparto",
+        "label": "Reparto",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "reporting"
+        },
+        "query": "SELECT DISTINCT reparto FROM v_alert ORDER BY 1",
+        "definition": "SELECT DISTINCT reparto FROM v_alert ORDER BY 1",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "sort": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Fonte dati",
+      "description": "'GLPI' in produzione. Se compare SINTETICO i numeri sono generati da scripts/gen_synthetic.py.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 10,
+        "h": 3
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT dataset_label AS \"Fonte\" FROM v_sync_status",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/"
+        }
+      },
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "Ultima sincronizzazione riuscita",
+      "description": "I grafici mostrano i dati fino a questo momento. Se GLPI non risponde il valore smette di avanzare.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 10,
+        "y": 0,
+        "w": 7,
+        "h": 3
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT extract(epoch FROM last_success_at) * 1000 AS \"Ultima sync\" FROM v_sync_status",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeFromNow"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        }
+      },
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "Errore ultimo tentativo",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 17,
+        "y": 0,
+        "w": 7,
+        "h": 3
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT coalesce(last_error, 'nessuno') AS \"Errore\" FROM v_sync_status",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/"
+        }
+      },
+      "id": 3
+    },
+    {
+      "type": "barchart",
+      "title": "Pareto: top-20 siti per numero di alert",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 14,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT site_code AS \"Sito\", count(*) AS \"Alert\" FROM v_alert WHERE $__timeFilter(opened_at) AND coalesce(acquedotto, '—') IN ($acquedotto) AND reparto IN ($reparto) AND site_code IS NOT NULL GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 20",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "auto",
+        "showValue": "auto",
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "xTickLabelRotation": -45
+      },
+      "id": 4
+    },
+    {
+      "type": "table",
+      "title": "Pareto top-20: quota e quota cumulata sul totale",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 3,
+        "w": 10,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "WITH s AS (SELECT site_code, count(*) AS n, count(*) FILTER (WHERE is_repeat) AS r FROM v_alert WHERE $__timeFilter(opened_at) AND coalesce(acquedotto, '—') IN ($acquedotto) AND reparto IN ($reparto) AND site_code IS NOT NULL GROUP BY 1), t AS (SELECT site_code, n, r, n::numeric / sum(n) OVER () AS quota, sum(n) OVER (ORDER BY n DESC, site_code) / sum(n) OVER () AS cumulata FROM s) SELECT site_code AS \"Sito\", n AS \"Alert\", quota AS \"Quota\", cumulata AS \"Cumulata\", r::numeric / n AS \"Ripetuti\" FROM t ORDER BY n DESC, site_code LIMIT 20",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "Quota|Cumulata|Ripetuti"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {},
+      "id": 5
+    },
+    {
+      "type": "timeseries",
+      "title": "Trend settimanale per acquedotto",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT (date_trunc('week', opened_local) AT TIME ZONE 'Europe/Rome') AS time, coalesce(acquedotto, '—') AS metric, count(*) AS value FROM v_alert WHERE $__timeFilter(opened_at) AND coalesce(acquedotto, '—') IN ($acquedotto) AND reparto IN ($reparto) GROUP BY 1, 2 ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {},
+      "id": 6
+    },
+    {
+      "type": "table",
+      "title": "Quota di ripetuti per sito (siti con almeno 10 alert)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT site_code AS \"Sito\", acquedotto AS \"Acq.\", reparto AS \"Reparto\", count(*) AS \"Alert\", avg(is_repeat::int) AS \"Ripetuti\" FROM v_alert WHERE $__timeFilter(opened_at) AND coalesce(acquedotto, '—') IN ($acquedotto) AND reparto IN ($reparto) AND site_code IS NOT NULL GROUP BY 1, 2, 3 HAVING count(*) >= 10 ORDER BY 5 DESC, 4 DESC",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ripetuti"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "max",
+                "value": 1
+              },
+              {
+                "id": "min",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {},
+      "id": 7
+    },
+    {
+      "type": "barchart",
+      "title": "Alert per acquedotto",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT coalesce(acquedotto, '—') AS \"Acquedotto\", count(*) AS \"Alert\", count(*) FILTER (WHERE is_repeat) AS \"di cui ripetuti\" FROM v_alert WHERE $__timeFilter(opened_at) AND coalesce(acquedotto, '—') IN ($acquedotto) AND reparto IN ($reparto) GROUP BY 1 ORDER BY 2 DESC",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "auto",
+        "showValue": "auto",
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "xTickLabelRotation": -45
+      },
+      "id": 8
+    },
+    {
+      "type": "barchart",
+      "title": "Alert per reparto",
+      "description": "'non mappato' = sito senza Posizione GLPI né riga in config/site_reparto.csv.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 6,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT reparto AS \"Reparto\", count(*) AS \"Alert\" FROM v_alert WHERE $__timeFilter(opened_at) AND coalesce(acquedotto, '—') IN ($acquedotto) AND reparto IN ($reparto) GROUP BY 1 ORDER BY 2 DESC",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "auto",
+        "showValue": "auto",
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "xTickLabelRotation": -45
+      },
+      "id": 9
+    },
+    {
+      "type": "stat",
+      "title": "Copertura mapping sito → reparto",
+      "description": "Su tutto lo storico. Per migliorarla compilare config/site_reparto.csv.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 28,
+        "w": 6,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT siti_mappati::numeric / nullif(siti_totali, 0) AS \"Siti mappati\", alert_mappati::numeric / nullif(alert_totali, 0) AS \"Alert mappati\" FROM v_mapping_coverage",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "green",
+                "value": 0.9
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "none",
+        "colorMode": "background",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        }
+      },
+      "id": 10
+    }
+  ],
+  "links": [
+    {
+      "title": "Control Room",
+      "type": "dashboards",
+      "tags": [
+        "controlroom"
+      ],
+      "asDropdown": false
+    }
+  ]
+}
