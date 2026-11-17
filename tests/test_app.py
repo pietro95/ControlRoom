@@ -87,6 +87,13 @@ def test_resolve_rientrato_closes_whole_group(client):
     mock_glpi.add_ticket("ALERT ON: FNC-IS00400-Campanella", "2026-11-17 09:10:00",
                          content="Tipo allarme: Livello\nOggetto: Vasca V1")
     ids = next(g["ids"] for g in client.get("/api/queue").json()["groups"] if g["oggetto"] == "Pompa P2")
+    r = client.post("/api/resolve", json={"ticket_ids": ids, "outcome": "rientrato"}, headers=H)
+    assert r.status_code == 409 and "in carico" in r.json()["detail"]  # prima la presa in carico
+    t = client.post("/api/take", json={"ticket_ids": ids}, headers=H).json()
+    assert t["ok"] and sorted(t["done"]) == sorted(ids)
+    g = next(g for g in client.get("/api/queue").json()["groups"] if g["oggetto"] == "Pompa P2")
+    assert g["taken"] and g["tech"] == ["mrossi"]
+    assert all(mock_glpi.STATE["tickets"][i]["status"] == 2 for i in ids)
     r = client.post("/api/resolve", json={"ticket_ids": ids, "outcome": "rientrato"}, headers=H).json()
     assert r["ok"] and sorted(r["done"]) == sorted(ids)
     st = client.get("/_noop").status_code if False else mock_glpi.STATE
@@ -101,6 +108,7 @@ def test_resolve_rientrato_closes_whole_group(client):
 def test_manovra_requires_note_and_uses_type_2(client):
     login(client)
     tid = next(g["ids"] for g in client.get("/api/queue").json()["groups"] if g["code"] == "MOE-PA00500")
+    client.post("/api/take", json={"ticket_ids": tid}, headers=H)
     assert client.post("/api/resolve", json={"ticket_ids": tid, "outcome": "manovra", "note": " "}, headers=H).status_code == 422
     r = client.post("/api/resolve", json={"ticket_ids": tid, "outcome": "manovra", "note": "Riarmato interruttore Q3"}, headers=H).json()
     assert r["ok"]
@@ -129,7 +137,7 @@ def test_new_call(client):
     users = client.get("/api/users?q=bianc").json()["users"]
     assert users == [{"id": 7, "name": "Bianchi Mario (mbianchi)"}]
     assert client.get("/api/users?q=neri").json()["users"] == []  # disattivato
-    assert len(client.get("/api/users").json()["users"]) == 2  # tendina aperta senza testo: tutti gli attivi
+    assert len(client.get("/api/users").json()["users"]) == 3  # tendina aperta senza testo: tutti gli attivi
     assert len(client.get("/api/sites").json()["sites"]) == 3
     body = {"location_id": sites[0]["id"], "location_name": sites[0]["name"], "caller_id": 7,
             "note": "Porta forzata\nlucchetto rotto"}
@@ -159,6 +167,7 @@ def test_open_calls_in_queue_and_closable(client):
     assert c["code"] == "FNC-IS00600" and c["acquedotto"] == "FNC" and c["tipo"] == "Chiamata"
     assert "Porta forzata" in c["descrizione"] and "Bianchi Mario" in c["descrizione"]
     assert "Control Room app" not in c["descrizione"]
+    assert client.post("/api/take", json={"ticket_ids": [tid]}, headers=H).json()["done"] == [tid]
     r = client.post("/api/resolve", json={"ticket_ids": [tid], "outcome": "altro", "note": "Verificato sul posto"},
                     headers=H).json()
     assert r["done"] == [tid]
@@ -190,3 +199,19 @@ def test_glpi_down_gives_502_not_crash(client):
     assert r.status_code == 502 and r.json()["ok"] is False
     body = {"location_id": 2, "location_name": "x FNC-IS00600", "caller_id": 7, "note": "test"}
     assert client.post("/api/call", json=body, headers=H).status_code == 502
+
+
+def test_glpi_refusal_reason_shown_to_operator(client):
+    login(client)
+    tid = next(g["ids"][0] for g in client.get("/api/queue").json()["groups"] if g["code"] == "MOE-PA00500")
+    mock_glpi.STATE["tickets"][tid]["tech"] = "mrossi"  # assegnato ma ancora "Nuovo": GLPI rifiuta
+    r = client.post("/api/resolve", json={"ticket_ids": [tid], "outcome": "rientrato"}, headers=H).json()
+    assert not r["ok"] and r["failed"] == [tid] and "diritti sufficienti" in r["error"]
+
+
+def test_take_requires_operator_in_glpi(client, monkeypatch):
+    login(client)
+    monkeypatch.setattr(mock_glpi, "USERS", [u for u in mock_glpi.USERS if u[1] != "mrossi"])
+    tid = next(g["ids"] for g in client.get("/api/queue").json()["groups"] if g["code"] == "MOE-PA00500")
+    r = client.post("/api/take", json={"ticket_ids": tid}, headers=H)
+    assert r.status_code == 422 and "mrossi" in r.json()["detail"]

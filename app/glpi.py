@@ -15,6 +15,21 @@ from .config import settings
 log = logging.getLogger("glpi")
 
 
+def _int(v) -> int | None:
+    try:
+        return int(str(v).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _names(v) -> list[str]:
+    """Campo multivalore della ricerca GLPI ('a$#$b' o 'a$$##$$b') -> lista di valori non vuoti."""
+    if not v:
+        return []
+    parts = re.split(r"\$\$##\$\$|\$#\$", str(v))
+    return [p.strip() for p in parts if p.strip() and p.strip() not in ("0", "null")]
+
+
 class GlpiError(Exception):
     pass
 
@@ -94,12 +109,13 @@ class GlpiClient:
             "criteria[2][value]": text,
             "forcedisplay[0]": 2, "forcedisplay[1]": 1, "forcedisplay[2]": 12, "forcedisplay[3]": 15,
             "forcedisplay[4]": 21,  # descrizione (corpo) del ticket
+            "forcedisplay[5]": 5,  # tecnico assegnato (presa in carico)
             "sort": 15, "order": "DESC", "range": "0-999",
         }
         data = await self._request("GET", "/search/Ticket", params=params)
         return [
-            {"id": int(r["2"]), "title": r["1"], "status": r.get("12"), "opened": r.get("15"),
-             "content": r.get("21") or ""}
+            {"id": int(r["2"]), "title": r["1"], "status": _int(r.get("12")), "opened": r.get("15"),
+             "content": r.get("21") or "", "tech": _names(r.get("5"))}
             for r in (data or {}).get("data", [])
         ]
 
@@ -153,7 +169,23 @@ class GlpiClient:
             return None
         return {"id": int(u["id"]), "name": self._user_label(u.get("firstname"), u.get("realname"), u.get("name"))}
 
+    async def find_user_by_login(self, login: str) -> int | None:
+        """ID dell'utente GLPI attivo con quel login (AD), None se assente."""
+        params = {"criteria[0][field]": 1, "criteria[0][searchtype]": "equals", "criteria[0][value]": login,
+                  "forcedisplay[0]": 2, "forcedisplay[1]": 1, "forcedisplay[2]": 8, "range": "0-9"}
+        data = await self._request("GET", "/search/User", params=params)
+        for r in (data or {}).get("data", []):
+            if str(r.get("1", "")).lower() == login.lower() and str(r.get("8", 1)) not in ("0", "No", "False"):
+                return int(r["2"])
+        return None
+
     # ---- scrittura ----
+    async def take_ticket(self, ticket_id: int, user_id: int) -> None:
+        """Presa in carico: operatore come tecnico assegnato (type 2) e stato 'In corso (assegnato)'."""
+        await self._request("POST", f"/Ticket/{ticket_id}/Ticket_User",
+                            json={"input": {"tickets_id": ticket_id, "users_id": user_id, "type": 2}})
+        await self._request("PUT", f"/Ticket/{ticket_id}", json={"input": {"id": ticket_id, "status": 2}})
+
     async def add_solution(self, ticket_id: int, solution_type: int, content: str) -> None:
         await self._request(
             "POST", "/ITILSolution",

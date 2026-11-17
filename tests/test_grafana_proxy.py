@@ -89,6 +89,8 @@ def test_grafana_down_does_not_affect_operator(client):
     assert r.status_code == 502 and "non raggiungibile" in r.json()["error"]
     assert client.get("/api/queue").status_code == 200
     ids = next(g["ids"] for g in client.get("/api/queue").json()["groups"] if g["code"] == "MOE-PA00500")
+    for i in ids:
+        mock_glpi.STATE["tickets"][i]["status"] = 2  # già preso in carico
     assert client.post("/api/resolve", json={"ticket_ids": ids, "outcome": "rientrato"}, headers={"X-CR": "1"}).json()["ok"]
 
 

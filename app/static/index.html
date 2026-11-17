@@ -52,12 +52,25 @@ async function resolve(target, outcome, text) {
   busy = true;
   try {
     const r = await api("/api/resolve", { body: { ticket_ids: target.ids, outcome, note: text } });
-    toast(r.ok ? `${target.label}: chiusi ${r.done.length} ticket` : `${target.label}: ${r.failed.length} NON chiusi, riprova`);
+    toast(r.ok ? `${target.label}: chiusi ${r.done.length} ticket`
+      : `${target.label}: ${r.failed.length} NON chiusi — ${r.error || "riprova"}`, r.ok ? 3500 : 8000);
   } catch (e) { toast("Errore: " + e.message, 6000); }
   busy = false; note = null; load();
 }
 
+async function take(target) {
+  busy = true;
+  try {
+    const r = await api("/api/take", { body: { ticket_ids: target.ids } });
+    toast(r.ok ? `${target.label}: preso in carico` : `${target.label}: presa in carico NON riuscita — ${r.error || "riprova"}`,
+      r.ok ? 3500 : 8000);
+  } catch (e) { toast("Errore: " + e.message, 6000); }
+  busy = false; load();
+}
+
 function actions(target) {
+  if (!target.taken) return h("div", { class: "actions" },
+    h("button", { class: "btn sm", onclick: (ev) => { ev.stopPropagation(); take(target); } }, "Prendi in carico"));
   if (target.call) return h("div", { class: "actions" },
     h("button", { class: "btn sm warn", onclick: (ev) => { ev.stopPropagation(); note = target; render(); } }, "Chiudi…"));
   return h("div", { class: "actions" },
@@ -128,7 +141,7 @@ function render() {
   for (const g of vis) {
     const open = expanded.has(g.key), multi = g.count > 1;
     const toggle = () => { open ? expanded.delete(g.key) : expanded.add(g.key); render(); };
-    const target = { ids: g.ids, label: label(g), call: g.kind === "call" };
+    const target = { ids: g.ids, label: label(g), call: g.kind === "call", taken: g.taken };
     rows.push(h("tr", { class: "grp" + (g.flapping ? " flap" : "") + (multi ? " multi" : ""), onclick: multi ? toggle : null },
       h("td", { class: "tog" }, multi ? (open ? "▾" : "▸") : ""),
       h("td", { class: "nowrap" }, fmtWhen(g.last)),
@@ -139,10 +152,10 @@ function render() {
       h("td", {}, g.kind === "call" ? h("span", { class: "badge call" }, "Chiamata") : (g.tipo || h("span", { class: "mut" }, "—"))),
       h("td", { class: "descr" }, g.descrizione || h("span", { class: "mut" }, "(nessuna descrizione nel ticket)")),
       h("td", {}, h("span", { class: "badge" + (g.flapping ? " flap" : "") }, String(g.count))),
-      h("td", {}, actions(target))));
+      h("td", {}, actions(target), g.tech && g.tech.length ? h("div", { class: "mut tech" }, "in carico: " + g.tech.join(", ")) : "")));
     if (note && note.ids === g.ids) rows.push(noteRow(note));
     if (open && multi) for (const it of g.items) {
-      const t1 = { ids: [it.id], label: `${g.code} #${it.id}` };
+      const t1 = { ids: [it.id], label: `${g.code} #${it.id}`, call: g.kind === "call", taken: it.taken };
       rows.push(h("tr", { class: "item" },
         h("td", {}), h("td", { class: "nowrap" }, fmtWhen(it.opened)),
         h("td", { colspan: 5 }, h("a", { href: `${me.glpi_url}/front/ticket.form.php?id=${it.id}`, target: "_blank", rel: "noopener" }, "#" + it.id)),

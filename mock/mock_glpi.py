@@ -28,9 +28,10 @@ USERS = [  # id, login, cognome, nome, attivo
     (7, "mbianchi", "Bianchi", "Mario", 1),
     (8, "lverdi", "Verdi", "Luca", 1),
     (9, "gneri", "Neri", "Giulia", 0),
+    (10, "mrossi", "Rossi", "Marco", 1),  # operatore dei test (login AD = login GLPI)
 ]
 FIELDS = {  # search option -> chiave del ticket simulato
-    1: "name", 2: "id", 9: "requesttype", 12: "status", 15: "date", 16: "closedate", 17: "solvedate",
+    1: "name", 2: "id", 5: "tech", 9: "requesttype", 12: "status", 15: "date", 16: "closedate", 17: "solvedate",
     19: "date_mod", 21: "content", 23: "solutiontype", 24: "solution", 80: "entity", 83: "location",
 }
 
@@ -44,7 +45,7 @@ def add_ticket(name: str, date: str, **kw) -> int:
     tid = kw.pop("id", None) or STATE["next"]
     STATE["next"] = max(STATE["next"], tid + 1)
     t = {"id": tid, "name": name, "status": 1, "date": date, "date_mod": date, "solvedate": None,
-         "closedate": None, "solutiontype": None, "solution": None, "requesttype": "E-Mail",
+         "closedate": None, "tech": "", "solutiontype": None, "solution": None, "requesttype": "E-Mail",
          "entity": "13) Control Room Centralizzata", "entity_id": 14, "location": None, "is_deleted": False,
          "content": ""}
     t.update(kw)
@@ -167,9 +168,13 @@ async def search_loc(request: Request, app_token: str = Header(""), session_toke
 @app.get("/apirest.php/search/User")
 async def search_user(request: Request, app_token: str = Header(""), session_token: str = Header("")):
     auth(app_token, session_token)
-    text = request.query_params.get("criteria[0][value]", "").lower()
-    data = [{"2": i, "1": lo, "34": ln, "9": fn, "8": act} for i, lo, ln, fn, act in USERS
-            if any(text in x.lower() for x in (lo, ln, fn))]
+    q = request.query_params
+    text = q.get("criteria[0][value]", "").lower()
+    if q.get("criteria[0][searchtype]") == "equals" and q.get("criteria[0][field]") == "1":
+        data = [{"2": i, "1": lo, "8": act} for i, lo, ln, fn, act in USERS if lo.lower() == text]
+    else:
+        data = [{"2": i, "1": lo, "34": ln, "9": fn, "8": act} for i, lo, ln, fn, act in USERS
+                if any(text in x.lower() for x in (lo, ln, fn))]
     return {"totalcount": len(data), "count": len(data), "data": data}
 
 
@@ -189,11 +194,37 @@ async def solution(request: Request, app_token: str = Header(""), session_token:
     t = STATE["tickets"].get(inp["items_id"])
     if not t:
         raise HTTPException(400, "ERROR_GLPI_ADD")
+    if t["status"] == 1:  # come il profilo reale: Nuovo -> Risolto non consentito
+        raise HTTPException(400, '["ERROR_GLPI_ADD","Non hai diritti sufficienti per eseguire questa azione."]')
     ts = now_local()
     t.update(status=5, solvedate=ts, date_mod=ts, solutiontype=SOLUTION_TYPES.get(inp["solutiontypes_id"]),
              solution=inp["content"])
     STATE["solutions"].append(inp)
     return {"id": len(STATE["solutions"])}
+
+
+@app.post("/apirest.php/Ticket/{tid}/Ticket_User")
+async def ticket_user(tid: int, request: Request, app_token: str = Header(""), session_token: str = Header("")):
+    auth(app_token, session_token)
+    inp = (await request.json())["input"]
+    t = STATE["tickets"].get(tid)
+    login = next((lo for i, lo, *_ in USERS if i == inp["users_id"]), None)
+    if not t or not login or inp.get("type") != 2:
+        raise HTTPException(400, "ERROR_GLPI_ADD")
+    t["tech"] = "$#$".join(x for x in (t["tech"], login) if x)
+    return {"id": tid * 10}
+
+
+@app.put("/apirest.php/Ticket/{tid}")
+async def ticket_update(tid: int, request: Request, app_token: str = Header(""), session_token: str = Header("")):
+    auth(app_token, session_token)
+    t = STATE["tickets"].get(tid)
+    if not t:
+        raise HTTPException(400, "ERROR_GLPI_UPDATE")
+    inp = (await request.json())["input"]
+    if "status" in inp:
+        t.update(status=int(inp["status"]), date_mod=now_local())
+    return [{str(tid): True, "message": ""}]
 
 
 @app.post("/apirest.php/Ticket")
