@@ -268,15 +268,29 @@ def test_progress_and_history_only_on_queue_tickets(client):
     assert client.post("/api/progress", json={"ticket_ids": [100], "note": "abc"}).status_code == 403
 
 
-def test_queue_fills_glpi_location_before_take(client):
-    """Codice sito con un'unica Posizione GLPI corrispondente: scritta sul ticket già alla prima lettura."""
+
+def test_take_without_location_asks_operator(client):
+    """Ticket senza Posizione: la presa in carico restituisce testo del ticket; l'operatore poi la indica."""
     login(client)
     q = client.get("/api/queue").json()
-    camp = next(g for g in q["groups"] if g["code"] == "FNC-IS00400")
-    assert camp["sito"] == "CENTRO Fanaco > FNC-IS00400 Campanella" and not camp["taken"]
-    st = mock_glpi.STATE["tickets"]
-    assert all(t["location"] == "CENTRO Fanaco > FNC-IS00400 Campanella" for t in st.values()
-               if "FNC-IS00400" in t["name"])
-    assert all(t["status"] == 1 for t in st.values() if "FNC-IS00400" in t["name"])  # nessuna presa in carico
-    sal = next(g for g in q["groups"] if g["code"] == "ANC-PA02100")  # nessuna Posizione: resta vuoto
-    assert sal["sito"] == "" and all(t["location"] is None for t in st.values() if "ANC-PA02100" in t["name"])
+    sal = next(g for g in q["groups"] if g["code"] == "ANC-PA02100")
+    assert sal["sito"] == "" and "content" not in sal["items"][0]  # il corpo non esce dalla coda
+    r = client.post("/api/take", json={"ticket_ids": sal["ids"]}, headers=H).json()
+    assert r["ok"] and [n["id"] for n in r["need_location"]] == sal["ids"]
+    assert "Mancanza rete ENEL" in r["need_location"][0]["text"] and "Salvatorello" in r["need_location"][0]["title"]
+    r = client.post("/api/location", json={"ticket_ids": sal["ids"] + [99999], "location_id": 2}, headers=H).json()
+    assert r["ok"] and r["done"] == sal["ids"] and r["skipped"] == [99999]
+    assert mock_glpi.STATE["tickets"][sal["ids"][0]]["location"] == "CENTRO Fanaco > FNC-IS00600 Casaleno"
+    sal = next(g for g in client.get("/api/queue").json()["groups"] if g["code"] == "ANC-PA02100")
+    assert sal["sito"] == "CENTRO Fanaco > FNC-IS00600 Casaleno"
+
+
+def test_take_with_location_asks_nothing(client):
+    login(client)
+    t = mock_glpi.STATE["tickets"]
+    for tk in t.values():
+        if "FNC-IS00400" in tk["name"]:
+            tk["location"] = "CENTRO Fanaco > FNC-IS00400 Campanella"
+    g = next(g for g in client.get("/api/queue").json()["groups"] if g["code"] == "FNC-IS00400" and g["count"] == 3)
+    r = client.post("/api/take", json={"ticket_ids": g["ids"]}, headers=H).json()
+    assert r["ok"] and r["need_location"] == []

@@ -3,7 +3,6 @@ import html
 import logging
 import re
 import secrets
-import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -18,7 +17,7 @@ from .auth import MANAGER, OPERATOR, ROLES, AuthError, RateLimiter, authenticate
 from .config import settings
 from .glpi import GlpiClient, GlpiError
 from .grafana_proxy import GrafanaProxy
-from .parsing import clean, parse_alert_body, parse_alert_title, parse_call
+from .parsing import body_text, clean, parse_alert_body, parse_alert_title, parse_call
 
 log = logging.getLogger("controlroom")
 STATIC = Path(__file__).parent / "static"
@@ -249,36 +248,6 @@ def create_app() -> FastAPI:
                     keys.add(t.lower())
             r["tech"], r["tech_keys"] = labels, sorted(keys)
 
-    loc_cache: dict[str, tuple[float, dict | None]] = {}  # codice sito -> (istante, posizione GLPI o None)
-    LOC_TTL_HIT, LOC_TTL_MISS = 3600.0, 300.0
-
-    async def fill_locations(glpi: GlpiClient, rows: list[dict]) -> None:
-        """Posizione GLPI vuota su un ticket con codice sito riconosciuto: la si cerca tra le Posizioni e la si
-        scrive sul ticket appena rilevato, senza aspettare la presa in carico. Errori: ticket lasciato com'è."""
-        now = time.monotonic()
-        for r in rows:
-            if r.get("location") or not r.get("code"):
-                continue
-            code = r["code"]
-            hit = loc_cache.get(code)
-            if not hit or now - hit[0] > (LOC_TTL_HIT if hit[1] else LOC_TTL_MISS):
-                try:
-                    hit = loc_cache[code] = (now, await glpi.location_for_code(code))
-                except GlpiError as e:
-                    log.warning("location_for_code %s: %s", code, e)
-                    continue
-            loc = hit[1]
-            if not loc:
-                continue
-            try:
-                await glpi.set_location(r["id"], loc["id"])
-            except GlpiError as e:
-                log.warning("set_location #%s: %s", r["id"], e)
-                continue
-            r["location"] = loc["name"]
-            store.log("system", "ControlRoom", "set_location", {"ticket": r["id"], "code": code,
-                                                                "location_id": loc["id"], "location": loc["name"]})
-
     async def build_queue(glpi: GlpiClient) -> list[dict]:
         """Raggruppa i ticket aperti per sito + tipo di allarme + oggetto interessato.
 
@@ -286,10 +255,6 @@ def create_app() -> FastAPI:
         sullo stesso sito non finiscono mai nello stesso gruppo (e quindi non si chiudono insieme)."""
         rows = await glpi.open_alerts()
         await resolve_techs(glpi, rows)
-        for r in rows:
-            s = parse_alert_title(r["title"])
-            r["code"] = s.code if s else ""
-        await fill_locations(glpi, rows)
         groups: dict[str, dict] = {}
         for r in rows:
             s = parse_alert_title(r["title"])
@@ -308,6 +273,7 @@ def create_app() -> FastAPI:
             g["sito"] = g["sito"] or r.get("location", "")
             g["ids"].append(r["id"])
             g["items"].append({"id": r["id"], "opened": r["opened"], "descrizione": a.descrizione,
+                               "location": r.get("location", ""), "content": r.get("content", ""), "title": r["title"],
                                "taken": _taken(r), "tech": r.get("tech", []), "tech_keys": r.get("tech_keys", []),
                                "waiting": is_waiting(r.get("status"))})
             if r["opened"] and (not g["first"] or r["opened"] < g["first"]):
@@ -328,6 +294,7 @@ def create_app() -> FastAPI:
                 "sito": r.get("location") or c.sito,
                 "tipo": "Chiamata", "oggetto": "", "descrizione": descr,
                 "ids": [r["id"]], "items": [{"id": r["id"], "opened": r["opened"], "descrizione": descr,
+                                              "location": r.get("location", ""), "content": r.get("content", ""), "title": r["title"],
                                               "taken": _taken(r), "tech": r.get("tech", []), "tech_keys": r.get("tech_keys", []),
                                               "waiting": is_waiting(r.get("status"))}],
                 "first": r["opened"], "last": r["opened"],
@@ -352,6 +319,9 @@ def create_app() -> FastAPI:
         except GlpiError as e:
             log.warning("queue: %s", e)
             return JSONResponse({"ok": False, "error": "GLPI non raggiungibile"}, status_code=502)
+        for g in groups:
+            for i in g["items"]:
+                i.pop("content", None)
         return {"ok": True, "groups": groups, "total": sum(g["count"] for g in groups)}
 
     class ResolveIn(BaseModel):
@@ -417,6 +387,37 @@ def create_app() -> FastAPI:
                 failed.append(tid)
                 error = error or glpi_write_reason(e)
         store.log(user["username"], user["name"], "take", {"done": done, "failed": failed, "skipped": skipped})
+        # ticket presi ora e ancora senza Posizione (il sync non l'ha trovata): l'operatore deve indicarla
+        need = [{"id": t, "title": items[t]["title"], "text": "\n".join(body_text(items[t]["content"]))[:4000]}
+                for t in done if not items[t]["location"]]
+        return {"ok": not failed, "done": done, "failed": failed, "skipped": skipped, "error": error,
+                "need_location": need}
+
+    class LocationIn(BaseModel):
+        ticket_ids: list[int] = Field(min_length=1, max_length=200)
+        location_id: int
+
+    @app.post("/api/location", dependencies=[Depends(write_guard)])
+    async def set_location(body: LocationIn, user: dict = Depends(operator_dep), glpi: GlpiClient = Depends(glpi_dep)):
+        """Posizione GLPI indicata dall'operatore per ticket in coda che ne sono privi."""
+        try:
+            items = {i["id"]: i for g in await build_queue(glpi) for i in g["items"]}
+        except GlpiError:
+            raise HTTPException(502, "GLPI non raggiungibile")
+        req = list(dict.fromkeys(body.ticket_ids))
+        ids = [i for i in req if i in items]
+        skipped = [i for i in req if i not in ids]
+        done, failed, error = [], [], ""
+        for tid in ids:
+            try:
+                await glpi.set_location(tid, body.location_id)
+                done.append(tid)
+            except GlpiError as e:
+                log.warning("set_location %s: %s", tid, e)
+                failed.append(tid)
+                error = error or glpi_write_reason(e)
+        store.log(user["username"], user["name"], "set_location",
+                  {"location_id": body.location_id, "done": done, "failed": failed, "skipped": skipped})
         return {"ok": not failed, "done": done, "failed": failed, "skipped": skipped, "error": error}
 
     async def queue_ids(glpi: GlpiClient) -> set[int]:

@@ -99,10 +99,12 @@ sito): è un indicatore operativo diverso da R4 e i due numeri non vanno confron
 
 ### Mapping sito → reparto
 Il reparto è il prefisso della Posizione GLPI (`SUD Blufi > ...` → `SUD Blufi`), presente solo sui ticket assegnati.
-Dal portale operatore la Posizione è valorizzata **appena il ticket entra in coda**, prima della presa in carico: se è
+Il worker di sync valorizza la Posizione **a ogni giro, sugli alert aperti**, prima della presa in carico: se è
 vuota, si cerca tra le Posizioni GLPI quella il cui nome contiene il codice sito (es. `FNC-IS00600`) come parola; con
-una sola corrispondenza la si scrive sul ticket (`locations_id`, audit `set_location`), con zero o più di una il
-ticket resta com'è. Esito della ricerca in cache per codice (1 h se trovato, 5 min se no).
+una sola corrispondenza la si scrive sul ticket (`locations_id`, riga nel log del worker), con zero o più di una il
+ticket resta com'è. Esito della ricerca in cache per codice (1 h se trovato, 5 min se no). Se alla presa in carico la
+Posizione è ancora vuota, il portale apre subito un popup con il testo del ticket e la ricerca tra le Posizioni GLPI;
+la scelta è scritta sul ticket (audit `set_location`). L'operatore può rimandare con "Più tardi".
 Per un sito vale, nell'ordine: riga in `config/site_reparto.csv` (`codice_sito;reparto`, compilabile a mano), poi il
 reparto più frequente nelle Posizioni dei suoi ticket, altrimenti "non mappato". Il CSV è ricaricato appena cambia;
 se contiene righe non valide **non** viene caricato (resta il precedente) e l'errore finisce in

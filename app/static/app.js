@@ -59,3 +59,45 @@ async function header(active) {
   document.body.prepend(hd);
   return me;
 }
+
+// Menu a tendina con ricerca: si apre al clic, filtra mentre si scrive (ricerca su GLPI),
+// frecce + Invio per scegliere, Esc per chiudere. Modificare il testo annulla la scelta.
+function combo(inputSel, url, key, onPick) {
+  const input = $(inputSel), list = $(inputSel + "-list");
+  let items = [], active = -1, timer, seq = 0, picked = null;
+  const open = on => { list.style.display = on ? "block" : "none"; input.setAttribute("aria-expanded", on); };
+  const render = (msg) => {
+    list.replaceChildren(...(msg ? [h("li", { class: "combo-msg" }, msg)] : items.map((it, i) =>
+      h("li", { role: "option", class: i === active ? "act" : "", onmousedown: ev => { ev.preventDefault(); choose(i); } }, it.name))));
+    const a = list.querySelector(".act"); if (a) a.scrollIntoView({ block: "nearest" });
+    open(true);
+  };
+  const load = async () => {
+    const my = ++seq; render("Ricerca…");
+    try {
+      const r = await api(url + encodeURIComponent(picked ? "" : input.value.trim()));
+      if (my !== seq) return;
+      items = r[key]; active = items.length ? 0 : -1;
+      render(items.length ? null : "Nessun risultato");
+    } catch (e) { if (my === seq) render("Errore: " + e.message); }
+  };
+  const choose = i => {
+    picked = items[i]; input.value = picked.name; input.classList.add("picked");
+    onPick(picked); open(false);
+  };
+  input.addEventListener("focus", () => { input.select(); load(); });
+  input.addEventListener("input", () => {
+    if (picked) { picked = null; input.classList.remove("picked"); onPick(null); }
+    clearTimeout(timer); timer = setTimeout(load, 250);
+  });
+  input.addEventListener("keydown", ev => {
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      ev.preventDefault();
+      if (list.style.display !== "block") return load();
+      if (!items.length) return;
+      active = (active + (ev.key === "ArrowDown" ? 1 : -1) + items.length) % items.length; render();
+    } else if (ev.key === "Enter" && list.style.display === "block" && active >= 0) { ev.preventDefault(); choose(active); }
+    else if (ev.key === "Escape") open(false);
+  });
+  input.addEventListener("blur", () => setTimeout(() => open(false), 150));
+}

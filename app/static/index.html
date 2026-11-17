@@ -19,6 +19,15 @@
   <tbody id="tbody"></tbody>
 </table></div>
 </main>
+<dialog id="locdlg" class="dlg" aria-labelledby="locdlg-t">
+  <h3 id="locdlg-t">Posizione GLPI mancante</h3>
+  <p class="mut">Il sistema non ha riconosciuto il sito di questo ticket. Leggi il testo e indica la posizione.</p>
+  <div id="locdlg-body"></div>
+  <div class="combo"><input id="locq" role="combobox" aria-expanded="false" aria-controls="locq-list" autocomplete="off"
+    placeholder="Cerca posizione: codice o nome"><ul class="combo-list" id="locq-list" role="listbox"></ul></div>
+  <div class="dlg-a"><button class="btn sm" id="locdlg-later">Più tardi</button>
+    <button class="btn sm ok" id="locdlg-ok">Aggiorna posizione</button></div>
+</dialog>
 <script src="/static/app.js"></script>
 <script>
 const SECTIONS = [ // sezione, titolo, testo se vuota
@@ -99,8 +108,35 @@ async function take(target) {
     const r = await api("/api/take", { body: { ticket_ids: target.ids } });
     toast(r.ok ? `${target.label}: preso in carico` : `${target.label}: presa in carico NON riuscita — ${r.error || "riprova"}`,
       r.ok ? 3500 : 8000);
+    if (r.need_location && r.need_location.length) askLocation(r.need_location);
   } catch (e) { toast("Errore: " + e.message, 6000); }
   busy = false; load();
+}
+
+// Ticket presi in carico senza Posizione GLPI (il sync non l'ha trovata): popup con il testo del ticket
+// e scelta della posizione, applicata a tutti i ticket elencati.
+function askLocation(tickets) {
+  const dlg = $("#locdlg");
+  let picked = null;
+  $("#locdlg-body").replaceChildren(...tickets.map((t) => h("div", { class: "loc-t" },
+    h("div", { class: "loc-h" }, `#${t.id} — ${t.title}`), h("pre", { class: "loc-x" }, t.text || "(nessun testo)"))));
+  const inp = $("#locq"); inp.value = ""; inp.classList.remove("picked");
+  if (!dlg.dataset.bound) { dlg.dataset.bound = "1"; combo("#locq", "/api/sites?q=", "sites", (s) => { dlg.picked = s; }); }
+  dlg.picked = null;
+  $("#locdlg-later").onclick = () => dlg.close();
+  $("#locdlg-ok").onclick = async () => {
+    picked = dlg.picked;
+    if (!picked) return toast("Scegli la posizione");
+    $("#locdlg-ok").disabled = true;
+    try {
+      const r = await api("/api/location", { body: { ticket_ids: tickets.map((t) => t.id), location_id: picked.id } });
+      toast(r.ok ? `Posizione aggiornata su ${r.done.length} ticket` : `Posizione NON aggiornata — ${r.error || "riprova"}`, r.ok ? 3500 : 8000);
+      if (r.ok) dlg.close();
+    } catch (e) { toast("Errore: " + e.message, 6000); }
+    $("#locdlg-ok").disabled = false; load();
+  };
+  dlg.showModal();
+  setTimeout(() => inp.focus(), 0);
 }
 
 function actions(target) {

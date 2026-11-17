@@ -23,6 +23,7 @@ import psycopg
 
 from app.config import settings
 from app.glpi import GlpiClient, GlpiError
+from app.parsing import parse_alert_title
 
 from .config import sync_settings as ss
 from .rules import ROME, classify, operator_from_solution, parse_glpi_datetime, reparto_from_location
@@ -240,11 +241,50 @@ def apply_mass_closure_exclusions(conn) -> int:
 
 # ------------------------------------------------------------------ giro di sync
 
+_loc_cache: dict[str, tuple[float, dict | None]] = {}  # codice sito -> (istante, posizione GLPI o None)
+LOC_TTL_HIT, LOC_TTL_MISS = 3600.0, 300.0
+
+
+async def fill_locations(glpi: GlpiClient) -> dict:
+    """Alert aperti senza Posizione GLPI: si cerca tra le Posizioni quella che contiene il codice sito e la si
+    scrive sul ticket, senza aspettare la presa in carico. Nessuna o più corrispondenze: ticket lasciato com'è
+    (sarà l'operatore a indicarla alla presa in carico). Errori su un ticket non fermano il giro."""
+    out = {"set": 0, "unresolved": 0, "errors": 0}
+    now = time.monotonic()
+    for r in await glpi.open_alerts():
+        site = parse_alert_title(r["title"])
+        if r.get("location") or not site:
+            continue
+        hit = _loc_cache.get(site.code)
+        if not hit or now - hit[0] > (LOC_TTL_HIT if hit[1] else LOC_TTL_MISS):
+            try:
+                hit = _loc_cache[site.code] = (now, await glpi.location_for_code(site.code))
+            except GlpiError as e:
+                log.warning("posizione per %s: %s", site.code, e)
+                out["errors"] += 1
+                continue
+        if not hit[1]:
+            out["unresolved"] += 1
+            continue
+        try:
+            await glpi.set_location(r["id"], hit[1]["id"])
+            out["set"] += 1
+            log.info("ticket #%s: posizione %s (%s)", r["id"], hit[1]["name"], site.code)
+        except GlpiError as e:
+            log.warning("set_location #%s: %s", r["id"], e)
+            out["errors"] += 1
+    return out
+
+
 async def run_once(conn: psycopg.Connection, glpi: GlpiClient, now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     cursor = get_state(conn, "cursor_modified_at")
     since = datetime.fromisoformat(cursor) - timedelta(seconds=ss.overlap_seconds) if cursor else None
     report: dict = {"since": since.isoformat() if since else None}
+    try:  # prima della lettura: le posizioni appena scritte entrano già in questo giro
+        report["locations"] = await fill_locations(glpi)
+    except GlpiError as e:
+        log.warning("valorizzazione posizioni saltata: %s", e)
     try:
         rows = await fetch_modified(glpi, since)
         last_rec = get_state(conn, "last_reconcile_at")
