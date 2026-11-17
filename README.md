@@ -110,7 +110,26 @@ su tutte le dashboard. Screenshot su questo dataset: `docs/screenshots/`.
 
     DATABASE_URL=postgresql://cr_sync:...@<host>:5432/controlroom python -m scripts.gen_synthetic --seed 42
 
-## Avvio
+## Deploy in produzione: `scripts/deploy.sh`
+Tutti i dati sotto una cartella (default `/appdata/controlroom`, variabile `CR_BASE`):
+`app/` codice + `.env` + `docker-compose.override.yml` generato · `config/` CSV · `data/{audit,postgres,grafana}` ·
+`backup/`. Nessun volume Docker nominato. Primo deploy (collegarsi con `ssh -A` per clonare con l'agent di 1Password):
+
+    scp scripts/deploy.sh <server>:   # oppure copiarlo a mano: serve solo per il primo 'prepare'
+    bash deploy.sh prepare             # cartelle e permessi, clone, CSV, .env con segreti generati
+    nano /appdata/controlroom/app/.env   # token GLPI, LDAP e gruppi, PORTAL_PUBLIC_URL
+    /appdata/controlroom/app/scripts/deploy.sh up          # controlli + build + app/postgres/grafana healthy
+    /appdata/controlroom/app/scripts/deploy.sh check-glpi  # search option verificate sul GLPI reale
+    /appdata/controlroom/app/scripts/deploy.sh sync        # solo se check-glpi = OK
+
+Poi `status`, `backup` (pg_dump + archivio, permessi 600), `update` (git pull fast-forward + rebuild).
+Lo script rifiuta: `.env` incompleto, `DEV_AUTH`/`DEV_ROLES` attivi, `COOKIE_SECURE` spento, password del sync non
+alfanumerica, Compose < 2.24, subnet `172.30.99.0/28` già in uso, `sync` senza `check-glpi` riuscito o con impostazioni
+GLPI cambiate dopo il check. `check-glpi` confronta tabella e campo interni di GLPI (es. 17 → `glpi_tickets.solvedate`)
+e conta i ticket dell'entità; non scrive nulla.
+Il reverse proxy TLS davanti a `127.0.0.1:8000` resta da configurare a parte.
+
+## Avvio manuale (sviluppo)
     cp .env.example .env   # compila tutto (password: openssl rand -hex 24)
     docker compose up -d --build
 I ruoli Postgres sono creati da `db/init/01_roles.sh` **solo alla prima inizializzazione** del volume `pgdata`: cambiare
