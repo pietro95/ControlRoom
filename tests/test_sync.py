@@ -56,6 +56,9 @@ def test_rerun_is_idempotent(db, glpi):
 
 
 def test_incremental_uses_date_mod_and_picks_up_changes(db, glpi, monkeypatch):
+    async def no_fill(_glpi):  # la scrittura delle posizioni sposta date_mod: qui si verifica solo il cursore
+        return {}
+    monkeypatch.setattr(worker, "fill_locations", no_fill)
     run(db, glpi)
     seen = []
     orig = glpi.search
@@ -155,3 +158,17 @@ def test_portal_to_reporting_end_to_end(db, glpi, monkeypatch, tmp_path):
     db.execute("DELETE FROM handler")
     assert db.execute("SELECT handled_by FROM v_alert WHERE id = %s", (ids[0],)).fetchone()[0] == "Mrossi"
     assert call_id
+
+
+def test_sync_fills_locations_in_background(db, glpi):
+    """Il worker valorizza la Posizione degli alert aperti con codice univoco tra le Posizioni, prima di ogni
+    presa in carico; il resto resta vuoto. La posizione scritta entra nel DB già nello stesso giro."""
+    worker._loc_cache.clear()
+    r = run(db, glpi)
+    assert r["ok"] and r["locations"]["set"] == 3 and r["locations"]["unresolved"] == 2
+    t = mock_glpi.STATE["tickets"]
+    camp = [x for x in t.values() if "FNC-IS00400" in x["name"]]
+    assert all(x["location"] == "CENTRO Fanaco > FNC-IS00400 Campanella" and x["status"] == 1 for x in camp)
+    assert all(x["location"] is None for x in t.values() if "ANC-PA02100" in x["name"])
+    assert count(db, "SELECT count(*) FROM ticket WHERE site_code = 'FNC-IS00400' AND location IS NOT NULL") == 3
+    assert run(db, glpi, T0 + timedelta(minutes=1))["locations"]["set"] == 0  # già valorizzate: nessuna scrittura

@@ -249,6 +249,8 @@ async def ticket_update(tid: int, request: Request, app_token: str = Header(""),
     inp = (await request.json())["input"]
     if "status" in inp:
         t.update(status=int(inp["status"]), date_mod=now_local())
+    if "locations_id" in inp:
+        t.update(location=dict(LOCATIONS).get(int(inp["locations_id"])), date_mod=now_local())
     return [{str(tid): True, "message": ""}]
 
 

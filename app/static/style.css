@@ -41,7 +41,7 @@ main{padding:16px;max-width:1100px;margin:0 auto}
 .meta{color:var(--mut);font-size:15px}
 .actions{display:flex;gap:10px}.actions .btn{flex:1}
 .note{display:none;gap:8px;flex-direction:column}
-.note input,.f input,.f textarea{width:100%;font-size:18px;padding:12px;border-radius:10px;border:2px solid var(--bordo);background:var(--bg);color:var(--tx)}
+.note input,.f input,.dlg input,.f textarea{width:100%;font-size:18px;padding:12px;border-radius:10px;border:2px solid var(--bordo);background:var(--bg);color:var(--tx)}
 .empty{text-align:center;color:var(--mut);padding:60px 0;font-size:22px}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#000d;color:#fff;padding:12px 20px;border-radius:12px;display:none;z-index:9}
 .f{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}.f label{color:var(--mut);font-size:15px}
@@ -111,3 +111,11 @@ tr.sec-others td b{color:#8a9bb0}
 .hist-t{font-weight:700;margin-bottom:4px}
 .hist-r{display:flex;gap:12px;padding:3px 0;border-top:1px solid var(--bordo)}.hist-r:first-of-type{border-top:0}
 .hist-x{white-space:pre-wrap;flex:1}
+.dlg{max-width:720px;width:calc(100% - 32px);border:0;border-radius:12px;padding:18px;background:var(--card);color:var(--tx)}
+.dlg::backdrop{background:#0008}
+.dlg h3{margin:0 0 6px}
+#locdlg-body{max-height:40vh;overflow:auto;margin:10px 0}
+.loc-t{margin-bottom:10px}.loc-h{font-weight:600}
+.loc-x{white-space:pre-wrap;font:inherit;margin:4px 0 0;padding:8px;border-radius:8px;background:#8881}
+.dlg-a{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+.dlg{overflow:visible}
