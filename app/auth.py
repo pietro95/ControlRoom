@@ -1,7 +1,7 @@
 """Login contro Active Directory (bind LDAP con UPN) + rate limit semplice."""
 import time
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ldap3 import Connection, Server, Tls, SIMPLE
 from ldap3.core.exceptions import LDAPException
@@ -11,10 +11,52 @@ import ssl
 from .config import settings
 
 
+OPERATOR = "operator"
+MANAGER = "manager"
+ROLES = (OPERATOR, MANAGER)
+IN_CHAIN = "1.2.840.113556.1.4.1941"  # LDAP_MATCHING_RULE_IN_CHAIN (Active Directory)
+
+
 @dataclass
 class AuthUser:
     username: str
     display_name: str
+    roles: list[str] = field(default_factory=list)
+
+
+def role_groups() -> dict[str, str]:
+    """ruolo -> DN del gruppo AD (solo i ruoli configurati)."""
+    m = {OPERATOR: settings.ldap_operator_group_dn, MANAGER: settings.ldap_manager_group_dn}
+    return {r: dn.strip() for r, dn in m.items() if dn and dn.strip()}
+
+
+def roles_from_direct_groups(member_of: list[str]) -> list[str]:
+    """Ruoli dal solo memberOf diretto (confronto DN case-insensitive)."""
+    groups = {g.strip().lower() for g in member_of}
+    return [r for r, dn in role_groups().items() if dn.lower() in groups]
+
+
+def dev_roles_for(username: str) -> list[str]:
+    for item in settings.dev_roles.split(","):
+        name, _, roles = item.strip().partition(":")
+        if name.strip().lower() == username.lower():
+            return [r for r in ROLES if r in roles.split("+")]
+    return [OPERATOR]
+
+
+def _nested_roles(conn, username: str) -> list[str]:
+    """Membership transitiva: una query per ruolo con la matching rule IN_CHAIN, valutata dal DC."""
+    out = []
+    for role, dn in role_groups().items():
+        conn.search(
+            settings.ldap_base_dn,
+            f"(&(objectClass=user)(sAMAccountName={escape_filter_chars(username)})"
+            f"(memberOf:{IN_CHAIN}:={escape_filter_chars(dn)}))",
+            attributes=["sAMAccountName"],
+        )
+        if conn.entries:
+            out.append(role)
+    return out
 
 
 class AuthError(Exception):
@@ -29,7 +71,10 @@ def authenticate(username: str, password: str) -> AuthUser:
     if settings.dev_auth:  # solo sviluppo/test
         if password != "dev":
             raise AuthError("credenziali errate")
-        return AuthUser(username, username.title())
+        roles = dev_roles_for(username)
+        if not roles:
+            raise AuthError("utente non abilitato")
+        return AuthUser(username, username.title(), roles)
 
     tls = Tls(validate=ssl.CERT_REQUIRED if settings.ldap_validate_tls else ssl.CERT_NONE)
     server = Server(settings.ldap_url, use_ssl=settings.ldap_url.startswith("ldaps"), tls=tls, connect_timeout=5)
@@ -46,13 +91,15 @@ def authenticate(username: str, password: str) -> AuthUser:
         if not conn.entries:
             raise AuthError("utente non trovato")
         e = conn.entries[0]
-        groups = [str(g).lower() for g in e.memberOf.values] if "memberOf" in e else []
-        grp = settings.ldap_operator_group_dn.lower()
-        if grp and grp not in groups:
-            raise AuthError("utente non abilitato")
         name = str(e.displayName) if "displayName" in e and e.displayName.value else username
+        if settings.ldap_nested_groups:
+            roles = _nested_roles(conn, username)
+        else:
+            roles = roles_from_direct_groups([str(g) for g in e.memberOf.values] if "memberOf" in e else [])
         conn.unbind()
-        return AuthUser(username, name)
+        if not roles:
+            raise AuthError("utente non abilitato")
+        return AuthUser(username, name, roles)
     except LDAPException as ex:
         raise AuthError("directory non raggiungibile") from ex
 
