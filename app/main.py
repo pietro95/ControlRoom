@@ -17,7 +17,7 @@ from .auth import MANAGER, OPERATOR, ROLES, AuthError, RateLimiter, authenticate
 from .config import settings
 from .glpi import GlpiClient, GlpiError
 from .grafana_proxy import GrafanaProxy
-from .parsing import clean, parse_alert_title
+from .parsing import clean, parse_alert_body, parse_alert_title
 
 log = logging.getLogger("controlroom")
 STATIC = Path(__file__).parent / "static"
@@ -181,22 +181,36 @@ def create_app() -> FastAPI:
         }
 
     async def build_queue(glpi: GlpiClient) -> list[dict]:
+        """Raggruppa i ticket aperti per sito + tipo di allarme + oggetto interessato.
+
+        Se il corpo non indica né tipo né oggetto, la descrizione fa da discriminante: allarmi diversi
+        sullo stesso sito non finiscono mai nello stesso gruppo (e quindi non si chiudono insieme)."""
         rows = await glpi.open_alerts()
         groups: dict[str, dict] = {}
         for r in rows:
             s = parse_alert_title(r["title"])
-            key = s.code if s else f"#{r['id']}"  # titolo non riconosciuto: mai raggruppato, un ticket = una card
+            a = parse_alert_body(r.get("content", ""))
+            if s:
+                disc = (a.tipo, a.oggetto) if (a.tipo or a.oggetto) else ("", "", a.descrizione.lower())
+                key = s.code + "|" + "|".join(disc)
+            else:
+                key = f"#{r['id']}"  # titolo non riconosciuto: mai raggruppato
             g = groups.setdefault(key, {
-                "code": key, "name": s.name if s else clean(r["title"])[:80],
-                "acquedotto": s.acquedotto if s else "—", "ids": [], "first": r["opened"], "last": r["opened"],
+                "key": key, "code": s.code if s else f"#{r['id']}",
+                "name": s.name if s else clean(r["title"])[:80], "acquedotto": s.acquedotto if s else "—",
+                "tipo": a.tipo, "oggetto": a.oggetto, "descrizione": a.descrizione,
+                "ids": [], "items": [], "first": r["opened"], "last": r["opened"],
             })
             g["ids"].append(r["id"])
+            g["items"].append({"id": r["id"], "opened": r["opened"], "descrizione": a.descrizione})
             if r["opened"] and (not g["first"] or r["opened"] < g["first"]):
                 g["first"] = r["opened"]
-            if r["opened"] and (not g["last"] or r["opened"] > g["last"]):
+            if r["opened"] and (not g["last"] or r["opened"] >= g["last"]):
                 g["last"] = r["opened"]
+                g["descrizione"] = a.descrizione or g["descrizione"]  # la più recente
         out = sorted(groups.values(), key=lambda g: g["last"] or "", reverse=True)
         for g in out:
+            g["items"].sort(key=lambda i: i["opened"] or "", reverse=True)
             g["count"] = len(g["ids"])
             g["flapping"] = g["count"] >= settings.flapping_threshold
         return out

@@ -60,3 +60,28 @@ button,input,textarea,select{font-family:inherit}
 .logo-chiaro{display:none!important}
 :root[data-theme="light"] .login .logo-scuro{display:none!important}
 :root[data-theme="light"] .login .logo-chiaro{display:block!important}
+/* Allarmi: tabella filtrabile/ordinabile con gruppi espandibili */
+main.wide{max-width:1600px}
+.summary{flex-wrap:wrap}
+.filters{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
+.filters input[type=search],.filters select{font-size:17px;padding:10px 12px;border-radius:10px;border:2px solid var(--bordo);background:var(--bg);color:var(--tx);min-height:44px}
+.filters input[type=search]{flex:1 1 320px}
+.filters .chk{display:flex;gap:8px;align-items:center;color:var(--mut);font-size:16px}
+.filters .chk input{width:20px;height:20px}
+.tablewrap{overflow-x:auto;background:var(--card);box-shadow:var(--ombra);border-radius:var(--r)}
+table.alarms{width:100%;border-collapse:collapse;font-size:16px}
+.alarms th{position:sticky;top:0;background:var(--card2);color:var(--mut);text-align:left;font-weight:600;padding:10px 8px;white-space:nowrap;font-size:14px}
+.alarms th.sortable{cursor:pointer;user-select:none}.alarms th.on{color:var(--tx)}
+.alarms td{padding:8px;border-top:1px solid var(--bordo);vertical-align:middle}
+.alarms tr.grp td:first-child{border-left:5px solid var(--acc)}
+.alarms tr.grp.flap td:first-child{border-left-color:var(--warn)}
+.alarms tr.grp.multi{cursor:pointer}.alarms tr.grp:hover{background:var(--card2)}
+.alarms tr.item td{background:var(--bg);font-size:15px;border-top:1px dashed var(--bordo)}
+.alarms tr.item a{color:var(--tx)}
+.alarms .tog{width:26px;text-align:center;color:var(--mut);font-size:18px}
+.alarms .code{font-size:16px;white-space:nowrap}.alarms .nm{font-size:14px}
+.alarms .descr{min-width:220px;max-width:480px}
+.alarms .actions{gap:6px;flex-wrap:nowrap}.alarms .actions .btn{flex:0 0 auto}
+.alarms .empty{padding:40px 0}
+.nowrap{white-space:nowrap}.mut{color:var(--mut)}
+.note.open{display:flex;flex-direction:row;flex-wrap:wrap;gap:8px}.note.open input{flex:1 1 300px}
