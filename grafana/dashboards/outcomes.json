@@ -73,7 +73,7 @@
         "defaults": {
           "color": {
             "mode": "fixed",
-            "fixedColor": "orange"
+            "fixedColor": "#d08a1f"
           }
         },
         "overrides": []
@@ -270,7 +270,11 @@
               "mode": "normal"
             }
           },
-          "min": 0
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#2b8fd6"
+          }
         },
         "overrides": [
           {
@@ -283,7 +287,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "green"
+                  "fixedColor": "#2a9d5c"
                 }
               }
             ]
@@ -298,7 +302,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "blue"
+                  "fixedColor": "#d08a1f"
                 }
               }
             ]
@@ -313,7 +317,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "purple"
+                  "fixedColor": "#2b8fd6"
                 }
               }
             ]
@@ -328,7 +332,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "#8e8e8e"
+                  "fixedColor": "#8a9bb0"
                 }
               }
             ]
@@ -378,7 +382,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "green"
+                  "fixedColor": "#2a9d5c"
                 }
               }
             ]
@@ -393,7 +397,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "blue"
+                  "fixedColor": "#d08a1f"
                 }
               }
             ]
@@ -408,7 +412,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "purple"
+                  "fixedColor": "#2b8fd6"
                 }
               }
             ]
@@ -423,7 +427,7 @@
                 "id": "color",
                 "value": {
                   "mode": "fixed",
-                  "fixedColor": "#8e8e8e"
+                  "fixedColor": "#8a9bb0"
                 }
               }
             ]

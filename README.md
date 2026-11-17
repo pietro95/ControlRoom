@@ -2,10 +2,14 @@
 
 Interfaccia a pulsanti sopra GLPI 11 (REST API legacy). Due schermate:
 
-- **Allarmi**: ticket "ALERT ON" aperti dell'entità Control Room, raggruppati per sito (un'unica card per sito,
-  con contatore e marcatore "ripetuto"). Pulsanti **Rientrato** / **Manovra eseguita** (nota obbligatoria):
-  chiudono con una soluzione strutturata *tutti* i ticket aperti del sito. I titoli non riconosciuti non si
-  raggruppano mai (una card per ticket).
+- **Allarmi**: ticket "ALERT ON" aperti dell'entità Control Room in una **tabella** filtrabile (testo libero,
+  acquedotto, tipo, solo ripetuti) e ordinabile per colonna. Un gruppo = stesso **sito + tipo di allarme +
+  oggetto interessato**; se il corpo del ticket non indica né tipo né oggetto, discrimina la descrizione.
+  Tipo, oggetto e descrizione si leggono dal corpo del ticket (opz. 21) cercando righe `Chiave: valore`
+  (`Tipo allarme`/`Tipo`/`Allarme`…, `Oggetto`/`Apparato`/`Dispositivo`…, `Descrizione`/`Messaggio`…, vedi
+  `app/parsing.py:_KEYS`); in mancanza, descrizione = prima riga del testo. I gruppi con più ticket si espandono
+  (clic sulla riga) e mostrano i singoli ticket con link a GLPI. **Rientrato** / **Manovra** (nota obbligatoria)
+  chiudono l'intero gruppo o il singolo ticket. I titoli non riconosciuti non si raggruppano mai.
 - **Nuova chiamata**: sito (ricerca tra le Posizioni GLPI) → chiamante (ricerca tra gli Utenti GLPI attivi, impostato
   come richiedente del ticket) → descrizione. Titolo `CHIAMATA: <codice> – <prima riga della descrizione>`,
   origine Telefono, posizione valorizzata. L'account di servizio GLPI deve avere lettura sugli Utenti.
@@ -24,6 +28,14 @@ sempre verificato (`LDAP_CA_CERT_FILE`, CA interna). **Ruoli** dai gruppi AD:
 - `/grafana/*` è riservato ai manager: reverse proxy verso Grafana (vedi sotto).
 - Sessioni emesse prima dell'introduzione dei ruoli non sono valide: serve un nuovo login. L'operatore reale è scritto nel testo di soluzione/ticket e in
 un audit locale SQLite (`/api/audit`), perché le scritture su GLPI avvengono con l'account di servizio.
+
+## Tema
+Identità Siciliacque (font Maven Pro, loghi, blu istituzionale) dal repo `gestione-contratti`; linee guida in
+`docs/design/`. Tema **scuro** (predefinito) e **chiaro**, con il pulsante ☀/☾ nell'intestazione; la scelta resta
+nel browser. Grafana segue il tema del portale (parametro `theme`) e riceve font e colori da
+`app/static/grafana-brand.css`, che il proxy aggiunge alle pagine HTML di Grafana. Quel CSS si appoggia a classi
+interne di Grafana (verificato su 11.4.0): da ricontrollare quando si aggiorna l'immagine. Le etichette degli assi
+dei grafici (disegnate su canvas) restano nel font di Grafana. I colori delle serie sono in `scripts/build_dashboards.py`.
 
 ## Setup in GLPI (da fare prima del primo avvio)
 1. Abilita la REST API (Configurazione → Generale → API) e crea un **client API** con App-Token; limita per IP all'host dell'app.

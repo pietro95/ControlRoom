@@ -73,7 +73,7 @@
         "defaults": {
           "color": {
             "mode": "fixed",
-            "fixedColor": "orange"
+            "fixedColor": "#d08a1f"
           }
         },
         "overrides": []
@@ -326,7 +326,11 @@
             "drawStyle": "bars",
             "fillOpacity": 70
           },
-          "min": 0
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#2b8fd6"
+          }
         },
         "overrides": []
       },

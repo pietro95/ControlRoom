@@ -34,11 +34,26 @@ function nav(roles, active) {
   if (roles.includes("manager")) items.push(link("stats", "/stats", "Statistiche"));
   return items;
 }
+function themeButton() {
+  const b = h("button", { class: "btn sm ghost theme-btn", type: "button" });
+  const sync = () => {
+    const dark = crTheme() === "dark";
+    b.textContent = dark ? "☀" : "☾";
+    b.setAttribute("aria-label", dark ? "Passa al tema chiaro" : "Passa al tema scuro");
+    b.title = b.getAttribute("aria-label");
+  };
+  b.addEventListener("click", () => { crSetTheme(crTheme() === "dark" ? "light" : "dark"); sync(); });
+  sync();
+  return b;
+}
 async function header(active) {
   const me = await api("/api/me");
   const hd = h("header", {},
-    h("h1", {}, "Control Room"),
+    h("div", { class: "brand" },
+      h("img", { src: "/static/img/logo/siciliacque_bianco.svg", alt: "Siciliacque" }),
+      h("h1", {}, "Control Room")),
     ...nav(me.roles || [], active),
+    themeButton(),
     h("span", { class: "who" }, me.name),
     h("form", { method: "post", action: "/logout" }, h("button", { class: "btn sm ghost" }, "Esci")));
   document.body.prepend(hd);

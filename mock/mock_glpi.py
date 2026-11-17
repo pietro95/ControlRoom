@@ -31,7 +31,7 @@ USERS = [  # id, login, cognome, nome, attivo
 ]
 FIELDS = {  # search option -> chiave del ticket simulato
     1: "name", 2: "id", 9: "requesttype", 12: "status", 15: "date", 16: "closedate", 17: "solvedate",
-    19: "date_mod", 23: "solutiontype", 24: "solution", 80: "entity", 83: "location",
+    19: "date_mod", 21: "content", 23: "solutiontype", 24: "solution", 80: "entity", 83: "location",
 }
 
 
@@ -55,17 +55,18 @@ def add_ticket(name: str, date: str, **kw) -> int:
 def seed():
     STATE.clear()
     STATE.update(next=100, tickets={}, solutions=[], sessions=set(), entity=None, fail=False)
+    pompa = "&lt;p&gt;Tipo allarme: Blocco pompa&lt;br&gt;Oggetto: Pompa P2&lt;br&gt;Descrizione: Intervento termico pompa P2&lt;/p&gt;"
     rows = [
-        ("ALERT ON: FNC-IS00400-Campanella", "2026-11-17 08:01:00"),
-        ("ALERT ON: FNC-IS00400-Campanella", "2026-11-17 08:20:00"),
-        ("ALERT ON: FNC-IS00400-Campanella", "2026-11-17 09:05:00"),
-        ("ALERT ON: ANC-PA02100-Salvatorello 2", "2026-11-17 09:30:00"),
-        ("ALERT ON: MOE-PA00500-Roccapalumba", "2026-11-17 07:40:00"),
-        ("ALERT OFF: ANC-PA01800-Baronessa", "2026-11-17 07:00:00"),  # non deve entrare in coda
-        ("Titolo strano senza codice ALERT ON", "2026-11-17 06:00:00"),
+        ("ALERT ON: FNC-IS00400-Campanella", "2026-11-17 08:01:00", pompa),
+        ("ALERT ON: FNC-IS00400-Campanella", "2026-11-17 08:20:00", pompa),
+        ("ALERT ON: FNC-IS00400-Campanella", "2026-11-17 09:05:00", pompa),
+        ("ALERT ON: ANC-PA02100-Salvatorello 2", "2026-11-17 09:30:00", "Mancanza rete ENEL"),
+        ("ALERT ON: MOE-PA00500-Roccapalumba", "2026-11-17 07:40:00", ""),
+        ("ALERT OFF: ANC-PA01800-Baronessa", "2026-11-17 07:00:00", ""),  # non deve entrare in coda
+        ("Titolo strano senza codice ALERT ON", "2026-11-17 06:00:00", ""),
     ]
-    for title, opened in rows:
-        add_ticket(title, opened)
+    for title, opened, content in rows:
+        add_ticket(title, opened, content=content)
 
 
 seed()
@@ -127,7 +128,7 @@ def _match(t: dict, c: dict) -> bool:
 SEARCH_OPTIONS = {  # come GLPI 10/11 (solo i campi usati), per sync.check_glpi
     "1": ("Titolo", "glpi_tickets", "name"), "2": ("ID", "glpi_tickets", "id"),
     "9": ("Origine della richiesta", "glpi_requesttypes", "name"), "12": ("Stato", "glpi_tickets", "status"),
-    "15": ("Data di apertura", "glpi_tickets", "date"), "16": ("Data di chiusura", "glpi_tickets", "closedate"),
+    "15": ("Data di apertura", "glpi_tickets", "date"), "21": ("Descrizione", "glpi_tickets", "content"), "16": ("Data di chiusura", "glpi_tickets", "closedate"),
     "17": ("Data di risoluzione", "glpi_tickets", "solvedate"), "19": ("Ultima modifica", "glpi_tickets", "date_mod"),
     "23": ("Tipo di soluzione", "glpi_solutiontypes", "name"), "24": ("Soluzione", "glpi_itilsolutions", "content"),
     "80": ("Entità", "glpi_entities", "completename"), "83": ("Posizione", "glpi_locations", "completename"),
