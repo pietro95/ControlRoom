@@ -315,12 +315,21 @@ cmd_backup() {
   ok "${ts}${label}_files.tgz (contiene config/.env con i segreti)"
 }
 
-case "${1:-}" in
-  prepare)    cmd_prepare ;;
-  install)    shift; cmd_install "$@" ;;
-  check-glpi) cmd_check_glpi ;;
-  sync)       cmd_sync ;;
-  status)     cmd_status ;;
-  backup)     shift; cmd_backup "${1:-}" ;;
-  *) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
-esac
+# Tutto dentro main, chiamata con "; exit $?" sulla STESSA riga: bash legge l'intera riga (e quindi main) prima di
+# eseguirla, ed esce senza leggere altro dal file. Bash legge gli script a mano a mano: se questo file venisse
+# riscritto SUL POSTO mentre gira (cp sopra il file, editor), senza questa riga riprenderebbe a leggere il contenuto
+# nuovo alla vecchia posizione. Il checkout di "install" non lo fa (git crea un file nuovo e bash continua a leggere
+# il vecchio), ma la protezione costa nulla. Non aggiungere nulla dopo l'ultima riga. (tests/test_deploy_selfupdate.py)
+main() {
+  case "${1:-}" in
+    prepare)    cmd_prepare ;;
+    install)    shift; cmd_install "$@" ;;
+    check-glpi) cmd_check_glpi ;;
+    sync)       cmd_sync ;;
+    status)     cmd_status ;;
+    backup)     shift; cmd_backup "${1:-}" ;;
+    *) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  esac
+}
+
+main "$@"; exit $?
