@@ -140,8 +140,8 @@ def test_portal_to_reporting_end_to_end(db, glpi, monkeypatch, tmp_path):
         ids = next(g["ids"] for g in c.get("/api/queue").json()["groups"] if g["code"] == "FNC-IS00400")
         assert c.post("/api/resolve", json={"ticket_ids": ids, "outcome": "manovra", "note": "Riarmo Q3"},
                       headers={"X-CR": "1"}).json()["ok"]
-        body = {"location_id": 1, "location_name": "SUD Blufi > BLF-SAP00200 Serbatoio", "kind": "energia",
-                "caller": "Guardiano"}
+        body = {"location_id": 1, "location_name": "SUD Blufi > BLF-SAP00200 Serbatoio", "caller_id": 7,
+                "note": "Mancanza energia"}
         call_id = c.post("/api/call", json=body, headers={"X-CR": "1"}).json()["ticket_id"]
     r = run(db, glpi, datetime.now(timezone.utc))
     assert r["ok"] and r["handlers"] == 4

@@ -5,55 +5,52 @@
 <div class="f"><label for="q">1. Sito (scrivi codice o nome)</label>
   <input id="q" autocomplete="off" placeholder="es. FNC-IS00600 oppure Casaleno">
   <div class="sites" id="sites"></div><div class="chosen" id="chosen"></div></div>
-<div class="f"><label>2. Cosa segnala</label><div class="kinds" id="kinds"></div></div>
-<div class="f"><label for="caller">3. Chi chiama</label><input id="caller" maxlength="120" placeholder="Nome e cognome"></div>
-<div class="f"><label for="phone">Recapito (opzionale)</label><input id="phone" maxlength="40" inputmode="tel"></div>
-<div class="f"><label for="note">Note (opzionale)</label><textarea id="note" rows="3" maxlength="1500"></textarea></div>
+<div class="f"><label for="uq">2. Chi chiama (utente GLPI: cognome, nome o login)</label>
+  <input id="uq" autocomplete="off" placeholder="es. Bianchi">
+  <div class="sites" id="users"></div><div class="chosen" id="uchosen"></div></div>
+<div class="f"><label for="note">3. Descrizione</label><textarea id="note" rows="4" maxlength="1500"
+  placeholder="La prima riga diventa il titolo del ticket"></textarea></div>
 <button class="btn ok" id="send" style="width:100%">Apri ticket</button>
 </main>
 <script src="/static/app.js"></script>
 <script>
-let loc = null, kind = null, timer;
-const sitesBox = $("#sites");
+let loc = null, caller = null;
 
-$("#q").addEventListener("input", () => {
-  clearTimeout(timer);
-  const v = $("#q").value.trim();
-  if (v.length < 2) { sitesBox.replaceChildren(); return; }
-  timer = setTimeout(async () => {
-    try {
-      const r = await api("/api/sites?q=" + encodeURIComponent(v));
-      sitesBox.replaceChildren(...r.sites.slice(0, 8).map(s =>
-        h("button", { class: "btn ghost", onclick: () => pick(s) }, s.name)));
-      if (!r.sites.length) sitesBox.replaceChildren(h("div", { class: "meta" }, "Nessun sito trovato"));
-    } catch (e) { toast("Ricerca non riuscita: " + e.message); }
-  }, 250);
-});
-
-function pick(s) {
-  loc = s; sitesBox.replaceChildren(); $("#q").value = "";
-  const c = $("#chosen"); c.textContent = "Sito: " + s.name; c.style.display = "block";
+// Ricerca con suggerimenti: input -> API -> bottoni; onPick riceve l'elemento scelto.
+function picker(input, box, chosen, url, key, label, onPick) {
+  let timer;
+  $(input).addEventListener("input", () => {
+    clearTimeout(timer);
+    const v = $(input).value.trim();
+    if (v.length < 2) { $(box).replaceChildren(); return; }
+    timer = setTimeout(async () => {
+      try {
+        const r = await api(url + encodeURIComponent(v));
+        const items = r[key];
+        $(box).replaceChildren(...items.slice(0, 8).map(s => h("button", { class: "btn ghost", onclick: () => {
+          onPick(s); $(box).replaceChildren(); $(input).value = "";
+          const c = $(chosen); c.textContent = label + ": " + s.name; c.style.display = "block";
+        } }, s.name)));
+        if (!items.length) $(box).replaceChildren(h("div", { class: "meta" }, "Nessun risultato"));
+      } catch (e) { toast("Ricerca non riuscita: " + e.message); }
+    }, 250);
+  });
 }
+picker("#q", "#sites", "#chosen", "/api/sites?q=", "sites", "Sito", s => loc = s);
+picker("#uq", "#users", "#uchosen", "/api/users?q=", "users", "Chiamante", u => caller = u);
 
 $("#send").addEventListener("click", async () => {
   if (!loc) return toast("Scegli il sito");
-  if (!kind) return toast("Scegli cosa segnala");
-  const caller = $("#caller").value.trim();
-  if (caller.length < 2) return toast("Indica chi chiama");
+  if (!caller) return toast("Scegli chi chiama");
+  const note = $("#note").value.trim();
+  if (note.length < 3) return toast("Scrivi la descrizione");
   const btn = $("#send"); btn.disabled = true;
   try {
-    const r = await api("/api/call", { body: { location_id: loc.id, location_name: loc.name, kind, caller, phone: $("#phone").value, note: $("#note").value } });
+    const r = await api("/api/call", { body: { location_id: loc.id, location_name: loc.name, caller_id: caller.id, note } });
     toast(`Ticket #${r.ticket_id} creato`, 2500);
     setTimeout(() => location.href = "/", 1200);
   } catch (e) { toast("Ticket NON creato: " + e.message, 7000); btn.disabled = false; }
 });
 
-(async () => {
-  const me = await header("call");
-  const box = $("#kinds");
-  for (const [k, label] of Object.entries(me.call_kinds)) {
-    const b = h("button", { class: "btn", onclick: () => { kind = k; box.querySelectorAll(".btn").forEach(x => x.classList.remove("sel")); b.classList.add("sel"); } }, label);
-    box.append(b);
-  }
-})();
+header("call");
 </script></body></html>

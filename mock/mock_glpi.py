@@ -24,6 +24,11 @@ LOCATIONS = [
     (2, "CENTRO Fanaco > FNC-IS00600 Casaleno"),
     (3, "CENTRO Fanaco > FNC-IS00400 Campanella"),
 ]
+USERS = [  # id, login, cognome, nome, attivo
+    (7, "mbianchi", "Bianchi", "Mario", 1),
+    (8, "lverdi", "Verdi", "Luca", 1),
+    (9, "gneri", "Neri", "Giulia", 0),
+]
 FIELDS = {  # search option -> chiave del ticket simulato
     1: "name", 2: "id", 9: "requesttype", 12: "status", 15: "date", 16: "closedate", 17: "solvedate",
     19: "date_mod", 23: "solutiontype", 24: "solution", 80: "entity", 83: "location",
@@ -156,6 +161,24 @@ async def search_loc(request: Request, app_token: str = Header(""), session_toke
     text = request.query_params.get("criteria[0][value]", "").lower()
     data = [{"2": i, "1": n} for i, n in LOCATIONS if text in n.lower()]
     return {"totalcount": len(data), "count": len(data), "data": data}
+
+
+@app.get("/apirest.php/search/User")
+async def search_user(request: Request, app_token: str = Header(""), session_token: str = Header("")):
+    auth(app_token, session_token)
+    text = request.query_params.get("criteria[1][criteria][0][value]", "").lower()
+    data = [{"2": i, "1": lo, "34": ln, "9": fn} for i, lo, ln, fn, act in USERS
+            if act and any(text in x.lower() for x in (lo, ln, fn))]
+    return {"totalcount": len(data), "count": len(data), "data": data}
+
+
+@app.get("/apirest.php/User/{uid}")
+async def get_user(uid: int, app_token: str = Header(""), session_token: str = Header("")):
+    auth(app_token, session_token)
+    for i, lo, ln, fn, act in USERS:
+        if i == uid:
+            return {"id": i, "name": lo, "realname": ln, "firstname": fn, "is_active": act, "is_deleted": 0}
+    raise HTTPException(404, "ERROR_ITEM_NOT_FOUND")
 
 
 @app.post("/apirest.php/ITILSolution")
