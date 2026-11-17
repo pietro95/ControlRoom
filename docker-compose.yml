@@ -1,7 +1,110 @@
+# Control Room: portale operatore/manager + reporting.
+# Isolamento:
+#   - solo "app" pubblica una porta (su 127.0.0.1, da esporre con reverse proxy TLS);
+#   - grafana_net: rete interna app <-> grafana, IP fissi. Grafana accetta l'header di auth proxy
+#     SOLO dall'IP dell'app (GF_AUTH_PROXY_WHITELIST) e non ha accesso a Internet;
+#   - db_net: rete interna postgres <-> grafana (<-> sync, fase successiva). L'app NON è su db_net:
+#     il portale operatore non dipende da Postgres né da Grafana (nessun depends_on).
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
+
 services:
-  controlroom:
+  app:
     build: .
     restart: unless-stopped
     env_file: .env
-    ports: ["127.0.0.1:8000:8000"]   # esporre solo tramite reverse proxy TLS
-    volumes: ["./data:/srv/data"]
+    environment:
+      GRAFANA_URL: http://172.30.99.11:3000
+    ports: ["127.0.0.1:8000:8000"]
+    volumes: ["appdata:/srv/data"]   # volume nominato: eredita il proprietario (uid 10001) dall'immagine
+    networks:
+      default: {}
+      grafana_net: { ipv4_address: 172.30.99.10 }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *logging
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: controlroom
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD mancante in .env}
+      SYNC_DB_PASSWORD: ${SYNC_DB_PASSWORD:?SYNC_DB_PASSWORD mancante in .env}
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:?GRAFANA_DB_PASSWORD mancante in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    networks: [db_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d controlroom"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+
+  grafana:
+    image: grafana/grafana-oss:11.4.0
+    restart: unless-stopped
+    environment:
+      GF_SERVER_ROOT_URL: ${PORTAL_PUBLIC_URL:?PORTAL_PUBLIC_URL mancante in .env}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-cr-grafana-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD mancante in .env}
+      GF_SECURITY_COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      GF_SECURITY_COOKIE_SAMESITE: strict
+      # l'iframe è servito dallo stesso origin del portale; il proxy impone frame-ancestors 'self'
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_AUTH_PROXY_ENABLED: "true"
+      GF_AUTH_PROXY_HEADER_NAME: X-WEBAUTH-USER
+      GF_AUTH_PROXY_HEADER_PROPERTY: username
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_AUTH_PROXY_WHITELIST: 172.30.99.10
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_DISABLE_SIGNOUT_MENU: "true"
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_ALLOW_ORG_CREATE: "false"
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: Viewer
+      GF_USERS_VIEWERS_CAN_EDIT: "false"
+      GF_LIVE_MAX_CONNECTIONS: "0"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_DATE_FORMATS_DEFAULT_TIMEZONE: Europe/Rome
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      grafana_net: { ipv4_address: 172.30.99.11 }
+      db_net: {}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/grafana/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *logging
+
+networks:
+  default: {}
+  grafana_net:
+    internal: true
+    ipam:
+      config: [{ subnet: 172.30.99.0/28 }]
+  db_net:
+    internal: true
+
+volumes:
+  appdata: {}
+  pgdata: {}
+  grafana-data: {}

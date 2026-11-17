@@ -38,6 +38,12 @@ class Settings:
     session_hours = int(os.getenv("SESSION_HOURS", "12"))
     cookie_secure = _b("COOKIE_SECURE", True)
 
+    # --- Grafana (solo rete interna; raggiunto attraverso il proxy /grafana/ del portale) ---
+    grafana_url = os.getenv("GRAFANA_URL", "http://grafana:3000").rstrip("/")
+    grafana_timeout = float(os.getenv("GRAFANA_TIMEOUT", "30"))
+    # admin locale di Grafana: mai raggiungibile via proxy (un utente AD omonimo non diventa admin)
+    grafana_admin_user = os.getenv("GRAFANA_ADMIN_USER", "cr-grafana-admin")
+
     # --- Storage ---
     db_path = os.getenv("DB_PATH", "data/audit.db")
 

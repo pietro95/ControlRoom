@@ -1,0 +1,21 @@
+# Datasource provisionato: utente grafana_ro (solo SELECT sullo schema reporting).
+apiVersion: 1
+deleteDatasources:
+  - name: Reporting
+    orgId: 1
+datasources:
+  - name: Reporting
+    uid: reporting
+    type: grafana-postgresql-datasource
+    access: proxy
+    url: postgres:5432
+    user: grafana_ro
+    isDefault: true
+    editable: false
+    jsonData:
+      database: controlroom
+      sslmode: disable          # traffico solo sulla rete interna db_net
+      postgresVersion: 1600
+      timescaledb: false
+    secureJsonData:
+      password: $GRAFANA_DB_PASSWORD
