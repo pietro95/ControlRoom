@@ -17,6 +17,12 @@ Interfaccia a pulsanti sopra GLPI 11 (REST API legacy). Due schermate:
 - **Nuova chiamata**: sito (ricerca tra le Posizioni GLPI) → chiamante (ricerca tra gli Utenti GLPI attivi, impostato
   come richiedente del ticket) → descrizione. Titolo `CHIAMATA: <codice> – <prima riga della descrizione>`,
   origine Telefono, posizione valorizzata. L'account di servizio GLPI deve avere lettura sugli Utenti.
+  **Apri ticket** crea il ticket in stato Nuovo; **Salva e prendi in carico** lo crea e assegna subito l'operatore come
+  tecnico (stato In corso). Se l'operatore non è un utente GLPI attivo, la richiesta è rifiutata prima di creare il ticket;
+  se fallisce solo la presa in carico, il ticket resta creato e l'errore è mostrato.
+- **Prestazioni**: la coda è letta da GLPI una volta ogni `QUEUE_CACHE_SECONDS` (default 5) e condivisa fra operatori
+  e azioni; ogni scrittura dal portale la invalida. Ricerche alert/chiamate, risoluzione dei nomi dei tecnici, scritture
+  su più ticket e storico vanno a GLPI in parallelo (max `GLPI_CONCURRENCY`, default 6).
 
 Login con account AD: **bind LDAP con le credenziali dell'utente stesso** (UPN `utente@dominio`), poi, sulla stessa
 connessione, lettura del suo `displayName` e verifica dei gruppi. **Nessun account di servizio**: non c'è un segreto LDAP

@@ -2,7 +2,7 @@
 import os
 import tempfile
 
-os.environ.update(DEV_AUTH="1", GLPI_APP_TOKEN="a", GLPI_USER_TOKEN="u",
+os.environ.update(DEV_AUTH="1", QUEUE_CACHE_SECONDS="0", GLPI_APP_TOKEN="a", GLPI_USER_TOKEN="u",
                   DB_PATH=os.path.join(tempfile.mkdtemp(), "audit.db"))
 
 

@@ -10,7 +10,10 @@
     placeholder="Scegli o scrivi cognome, nome o login"><ul class="combo-list" id="uq-list" role="listbox"></ul></div></div>
 <div class="f"><label for="note">3. Descrizione</label><textarea id="note" rows="4" maxlength="1500"
   placeholder="La prima riga diventa il titolo del ticket"></textarea></div>
-<button class="btn ok" id="send" style="width:100%">Apri ticket</button>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+  <button class="btn" id="send" style="flex:1 1 200px">Apri ticket</button>
+  <button class="btn ok" id="send-take" style="flex:1 1 200px" title="Apre il ticket e ti assegna come tecnico">Salva e prendi in carico</button>
+</div>
 </main>
 <script src="/static/app.js"></script>
 <script>
@@ -19,18 +22,29 @@ let loc = null, caller = null;
 combo("#q", "/api/sites?q=", "sites", s => loc = s);
 combo("#uq", "/api/users?q=", "users", u => caller = u);
 
-$("#send").addEventListener("click", async () => {
+async function send(take) {
   if (!loc) return toast("Scegli il sito");
   if (!caller) return toast("Scegli chi chiama");
   const note = $("#note").value.trim();
   if (note.length < 3) return toast("Scrivi la descrizione");
-  const btn = $("#send"); btn.disabled = true;
+  const btns = [$("#send"), $("#send-take")], btn = take ? btns[1] : btns[0], txt = btn.textContent;
+  btns.forEach(b => b.disabled = true); btn.textContent = "Invio in corso…";
   try {
-    const r = await api("/api/call", { body: { location_id: loc.id, location_name: loc.name, caller_id: caller.id, note } });
-    toast(`Ticket #${r.ticket_id} creato`, 2500);
-    setTimeout(() => location.href = "/", 1200);
-  } catch (e) { toast("Ticket NON creato: " + e.message, 7000); btn.disabled = false; }
-});
+    const r = await api("/api/call", { body: { location_id: loc.id, location_name: loc.name, caller_id: caller.id, note, take } });
+    if (take && !r.taken) {
+      toast(`Ticket #${r.ticket_id} creato ma NON preso in carico — ${r.take_error || "riprova dalla coda"}`, 8000);
+      setTimeout(() => location.href = "/", 3000);
+    } else {
+      toast(`Ticket #${r.ticket_id} creato${take ? " e preso in carico" : ""}`, 2500);
+      setTimeout(() => location.href = "/", 600);
+    }
+  } catch (e) {
+    toast("Ticket NON creato: " + e.message, 7000);
+    btns.forEach(b => b.disabled = false); btn.textContent = txt;
+  }
+}
+$("#send").addEventListener("click", () => send(false));
+$("#send-take").addEventListener("click", () => send(true));
 
 header("call");
 </script></body></html>

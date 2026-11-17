@@ -54,6 +54,11 @@ class Settings:
     # --- UI ---
     refresh_seconds = int(os.getenv("REFRESH_SECONDS", "15"))
     flapping_threshold = int(os.getenv("FLAPPING_THRESHOLD", "3"))
+    # coda condivisa fra operatori e azioni: riletta da GLPI al massimo ogni N secondi (0 = sempre);
+    # ogni scrittura dal portale la invalida subito
+    queue_cache_seconds = float(os.getenv("QUEUE_CACHE_SECONDS", "5"))
+    # richieste GLPI in parallelo per singola operazione (risoluzione nomi, scritture su più ticket, storico)
+    glpi_concurrency = int(os.getenv("GLPI_CONCURRENCY", "6"))
 
 
 settings = Settings()

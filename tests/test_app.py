@@ -295,3 +295,54 @@ def test_take_with_location_asks_nothing(client):
     g = next(g for g in client.get("/api/queue").json()["groups"] if g["code"] == "FNC-IS00400" and g["count"] == 3)
     r = client.post("/api/take", json={"ticket_ids": g["ids"]}, headers=H).json()
     assert r["ok"] and r["need_location"] == []
+
+
+def _call_body(client, **kw):
+    site = client.get("/api/sites?q=casaleno").json()["sites"][0]
+    return {"location_id": site["id"], "location_name": site["name"], "caller_id": 7, "note": "Porta forzata", **kw}
+
+
+def test_new_call_save_and_take(client):
+    login(client)
+    r = client.post("/api/call", json=_call_body(client, take=True), headers=H).json()
+    assert r["ok"] and r["taken"] and r["take_error"] == ""
+    t = mock_glpi.STATE["tickets"][r["ticket_id"]]
+    assert t["status"] == 2 and t["tech"]
+    g = next(g for g in client.get("/api/queue").json()["groups"] if g["ids"] == [r["ticket_id"]])
+    assert g["taken"] and g["section"] == "mine"
+    # senza take resta da prendere in carico
+    r2 = client.post("/api/call", json=_call_body(client), headers=H).json()
+    assert r2["taken"] is False and mock_glpi.STATE["tickets"][r2["ticket_id"]]["status"] == 1
+
+
+def test_new_call_take_refused_before_creating_if_operator_not_in_glpi(client, monkeypatch):
+    login(client)
+    body = _call_body(client, take=True)
+    monkeypatch.setattr(mock_glpi, "USERS", [u for u in mock_glpi.USERS if u[1] != "mrossi"])
+    n = len(mock_glpi.STATE["tickets"])
+    r = client.post("/api/call", json=body, headers=H)
+    assert r.status_code == 422 and "mrossi" in r.json()["detail"]
+    assert len(mock_glpi.STATE["tickets"]) == n  # nessun ticket creato
+
+
+def test_queue_cache_shared_and_invalidated_by_writes(client, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "queue_cache_seconds", 60)
+    login(client)
+    searches = []
+    orig = GlpiClient._open_by_title
+
+    async def counting(self, text):
+        searches.append(text)
+        return await orig(self, text)
+
+    monkeypatch.setattr(GlpiClient, "_open_by_title", counting)
+    q1 = client.get("/api/queue").json()
+    client.get("/api/queue")
+    assert len(searches) == 2  # una lettura (alert + chiamate) per due richieste
+    tid = next(g["ids"][0] for g in q1["groups"] if g["code"] == "MOE-PA00500")
+    assert client.post("/api/take", json={"ticket_ids": [tid]}, headers=H).json()["done"] == [tid]
+    n = len(searches)
+    q2 = client.get("/api/queue").json()  # dopo la scrittura si rilegge da GLPI
+    assert len(searches) > n
+    assert next(i for g in q2["groups"] for i in g["items"] if i["id"] == tid)["taken"]
