@@ -267,6 +267,7 @@ def create_app() -> FastAPI:
             g = groups.setdefault(key, {
                 "key": key, "kind": "alert", "code": s.code if s else f"#{r['id']}",
                 "name": s.name if s else clean(r["title"])[:80], "acquedotto": s.acquedotto if s else "—",
+                "categoria": "Allarme",  # tutti i ticket "ALERT ON" (coda alert) sono allarmi di telecontrollo
                 "tipo": a.tipo, "oggetto": a.oggetto, "descrizione": a.descrizione, "sito": "",
                 "ids": [], "items": [], "first": r["opened"], "last": r["opened"],
             })
@@ -292,7 +293,7 @@ def create_app() -> FastAPI:
                 "key": f"call|{r['id']}", "kind": "call", "code": c.code or f"#{r['id']}",
                 "name": c.sito or clean(r["title"])[:80], "acquedotto": c.acquedotto,
                 "sito": r.get("location") or c.sito,
-                "tipo": "Chiamata", "oggetto": "", "descrizione": descr,
+                "categoria": "Chiamata", "tipo": "Chiamata", "oggetto": "", "descrizione": descr,
                 "ids": [r["id"]], "items": [{"id": r["id"], "opened": r["opened"], "descrizione": descr,
                                               "location": r.get("location", ""), "content": r.get("content", ""), "title": r["title"],
                                               "taken": _taken(r), "tech": r.get("tech", []), "tech_keys": r.get("tech_keys", []),

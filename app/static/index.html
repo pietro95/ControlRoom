@@ -1,12 +1,12 @@
 <!doctype html>
 <html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Control Room – Allarmi</title><link rel="stylesheet" href="/static/style.css"><script src="/static/theme.js"></script></head>
+<title>Control Room – Ticket</title><link rel="stylesheet" href="/static/style.css"><script src="/static/theme.js"></script></head>
 <body><main class="wide">
 <div class="banner" id="banner"></div>
-<div class="summary"><span><b id="total">–</b> allarmi aperti in <b id="ngroups">–</b> gruppi su <b id="sites">–</b> siti</span>
+<div class="summary"><span><b id="total">–</b> ticket aperti in <b id="ngroups">–</b> gruppi su <b id="sites">–</b> siti</span>
   <span id="shown"></span><span id="upd"></span></div>
 <div class="filters">
-  <input id="fq" type="search" placeholder="Cerca sito, oggetto, tipo, descrizione, n° ticket…" autocomplete="off">
+  <input id="fq" type="search" placeholder="Cerca sito, apparato, evento, descrizione, n° ticket" autocomplete="off">
   <select id="facq"><option value="">Tutti gli acquedotti</option></select>
   <select id="ftipo"><option value="">Tutti i tipi</option></select>
   <select id="fwait"><option value="">Attivi e in attesa</option><option value="active">Solo attivi</option><option value="waiting">Solo in attesa</option></select>
@@ -37,7 +37,7 @@ const SECTIONS = [ // sezione, titolo, testo se vuota
 ];
 const COLS = [ // chiave, intestazione, ordinabile
   ["", "", false], ["last", "Ultimo", true], ["first", "Dal", true], ["acquedotto", "Acq.", true],
-  ["code", "Sito", true], ["oggetto", "Oggetto", true], ["tipo", "Tipo allarme", true],
+  ["code", "Sito", true], ["categoria", "Tipo", true], ["oggetto", "Apparato / evento", true],
   ["descrizione", "Descrizione", true], ["count", "N°", true], ["", "Azioni", false],
 ];
 const store = { // preferenze del singolo operatore: se il browser le blocca, si riparte dai default
@@ -144,11 +144,11 @@ function actions(target) {
     h("button", { class: "btn sm", onclick: (ev) => { ev.stopPropagation(); take(target); } }, "Prendi in carico"));
   if (target.call) return h("div", { class: "actions" },
     h("button", { class: "btn sm warn", onclick: (ev) => { ev.stopPropagation(); note = target; loadHistory(target); render(); } },
-      target.waiting ? "Aggiorna / storico…" : "Aggiorna / chiudi…"));
+      target.waiting ? "Aggiorna e storico" : "Aggiorna o chiudi"));
   return h("div", { class: "actions" },
     h("button", { class: "btn sm ok", onclick: (ev) => { ev.stopPropagation(); resolve(target, "rientrato", ""); } }, "Rientrato"),
     h("button", { class: "btn sm warn", onclick: (ev) => { ev.stopPropagation(); note = target; loadHistory(target); render(); } },
-      target.waiting ? "Manovra / storico…" : "Manovra…"));
+      target.waiting ? "Manovra e storico" : "Registra manovra"));
 }
 
 function noteRow(target) {
@@ -178,12 +178,12 @@ function noteRow(target) {
 
 function matches(g, f) {
   if (f.acq && g.acquedotto !== f.acq) return false;
-  if (f.tipo && (g.tipo || "(non indicato)") !== f.tipo) return false;
+  if (f.tipo && g.categoria !== f.tipo) return false;
   if (f.flap && !g.flapping) return false;
   if (f.wait === "active" && g.waiting) return false;
   if (f.wait === "waiting" && !g.waiting_count) return false;
   if (!f.q) return true;
-  const hay = [g.code, g.name, g.sito, g.acquedotto, g.oggetto, g.tipo, g.descrizione,
+  const hay = [g.code, g.name, g.sito, g.acquedotto, g.categoria, g.oggetto, g.tipo, g.descrizione,
     ...g.items.map((i) => "#" + i.id + " " + i.descrizione)].join(" ").toLowerCase();
   return f.q.split(/\s+/).every((w) => hay.includes(w));
 }
@@ -209,9 +209,10 @@ function fillSelect(sel, values) {
 
 function renderHead() {
   $("#thead").replaceChildren(...COLS.map(([k, t, s]) => {
-    if (!s) return h("th", {}, t);
+    const tip = k === "oggetto" ? { title: "Apparato interessato ed evento, letti dalle righe «Oggetto:» e «Tipo allarme:» del testo del ticket di telecontrollo" } : {};
+    if (!s) return h("th", tip, t);
     const arrow = sort.key === k ? (sort.dir > 0 ? " ▲" : " ▼") : "";
-    return h("th", { class: "sortable" + (sort.key === k ? " on" : ""), onclick: () => {
+    return h("th", { ...tip, class: "sortable" + (sort.key === k ? " on" : ""), onclick: () => {
       sort = sort.key === k ? { key: k, dir: -sort.dir } : { key: k, dir: ["last", "first", "count"].includes(k) ? -1 : 1 };
       store.set("sort", sort); render();
     } }, t + arrow);
@@ -229,8 +230,10 @@ function renderGroup(g, rows) {
     h("td", { class: "nowrap mut" }, multi ? fmtWhen(g.first) : ""),
     h("td", {}, g.acquedotto),
     h("td", {}, h("div", { class: "code" }, g.code), h("div", { class: "nm" }, g.name), g.sito ? h("div", { class: "nm", title: "Posizione GLPI" }, g.sito) : null),
-    h("td", {}, g.oggetto || h("span", { class: "mut" }, "—")),
-    h("td", {}, g.kind === "call" ? h("span", { class: "badge call" }, "Chiamata") : (g.tipo || h("span", { class: "mut" }, "—"))),
+    h("td", {}, h("span", { class: "badge " + (g.kind === "call" ? "call" : "alarm") }, g.categoria)),
+    h("td", {}, g.kind === "call" ? h("span", { class: "mut" }, "—")
+      : g.oggetto || g.tipo ? [h("div", {}, g.oggetto || "—"), g.tipo ? h("div", { class: "nm" }, g.tipo) : ""]
+      : h("span", { class: "mut", title: "Il testo dell'allarme non indica apparato né evento" }, "non indicato")),
     h("td", { class: "descr" }, g.waiting_count ? h("span", { class: "badge wait" }, g.waiting ? "In attesa" : `${g.waiting_count} in attesa`) : "",
       g.waiting_count ? " " : "", g.descrizione || h("span", { class: "mut" }, "(nessuna descrizione nel ticket)")),
     h("td", {}, h("span", { class: "badge" + (g.flapping ? " flap" : "") }, String(g.count))),
@@ -281,7 +284,7 @@ async function load() {
     $("#upd").textContent = "· agg. " + new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     const uniq = (a) => [...new Set(a)].sort((x, y) => x.localeCompare(y, "it"));
     fillSelect($("#facq"), uniq(groups.map((g) => g.acquedotto)));
-    fillSelect($("#ftipo"), uniq(groups.map((g) => g.tipo || "(non indicato)")));
+    fillSelect($("#ftipo"), uniq(groups.map((g) => g.categoria)));
     for (const k of [...expanded]) if (!groups.some((g) => g.key === k)) expanded.delete(k);
     render();
   } catch (e) {
