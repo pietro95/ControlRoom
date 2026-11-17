@@ -171,14 +171,23 @@ class GlpiClient:
 
     async def find_user_by_login(self, login: str) -> int | None:
         """ID dell'utente GLPI attivo con quel login (AD), None se assente."""
+        u = await self.find_user_info(login)
+        return u["id"] if u else None
+
+    async def find_user_info(self, login: str) -> dict | None:
+        """Utente GLPI attivo con quel login: {id, login, names} (names = modi in cui GLPI può mostrarlo)."""
         # "equals" sul campo 1 (itemlink) in GLPI confronta l'ID, non il login: si usa "contains" ancorato
         # (^...$) e si verifica comunque l'uguaglianza esatta qui sotto.
         params = {"criteria[0][field]": 1, "criteria[0][searchtype]": "contains", "criteria[0][value]": f"^{login}$",
-                  "forcedisplay[0]": 2, "forcedisplay[1]": 1, "forcedisplay[2]": 8, "range": "0-9"}
+                  "forcedisplay[0]": 2, "forcedisplay[1]": 1, "forcedisplay[2]": 8,
+                  "forcedisplay[3]": 34, "forcedisplay[4]": 9, "range": "0-9"}
         data = await self._request("GET", "/search/User", params=params)
         for r in (data or {}).get("data", []):
-            if str(r.get("1", "")).lower() == login.lower() and str(r.get("8", 1)) not in ("0", "No", "False"):
-                return int(r["2"])
+            lo = str(r.get("1", ""))
+            if lo.lower() == login.lower() and str(r.get("8", 1)) not in ("0", "No", "False"):
+                last, first = (r.get("34") or "").strip(), (r.get("9") or "").strip()
+                names = {lo, f"{last} {first}".strip(), f"{first} {last}".strip(), self._user_label(first, last, lo)}
+                return {"id": int(r["2"]), "login": lo, "names": {n.lower() for n in names if n}}
         return None
 
     # ---- scrittura ----

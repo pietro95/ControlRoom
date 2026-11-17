@@ -20,6 +20,11 @@
 </main>
 <script src="/static/app.js"></script>
 <script>
+const SECTIONS = [ // sezione, titolo, testo se vuota
+  ["mine", "Presi in carico da me", "Nessun ticket in carico a te"],
+  ["todo", "Da prendere in carico", "Nessun ticket da prendere in carico"],
+  ["others", "In carico ad altri colleghi", "Nessun ticket in carico ad altri"],
+];
 const COLS = [ // chiave, intestazione, ordinabile
   ["", "", false], ["last", "Ultimo", true], ["first", "Dal", true], ["acquedotto", "Acq.", true],
   ["code", "Sito", true], ["oggetto", "Oggetto", true], ["tipo", "Tipo allarme", true],
@@ -132,39 +137,47 @@ function renderHead() {
   }));
 }
 
+function renderGroup(g, rows) {
+  const open = expanded.has(g.key), multi = g.count > 1;
+  const toggle = () => { open ? expanded.delete(g.key) : expanded.add(g.key); render(); };
+  const target = { ids: g.ids, label: label(g), call: g.kind === "call", taken: g.taken };
+  rows.push(h("tr", { class: "grp" + (g.flapping ? " flap" : "") + (multi ? " multi" : ""), onclick: multi ? toggle : null },
+    h("td", { class: "tog" }, multi ? (open ? "▾" : "▸") : ""),
+    h("td", { class: "nowrap" }, fmtWhen(g.last)),
+    h("td", { class: "nowrap mut" }, multi ? fmtWhen(g.first) : ""),
+    h("td", {}, g.acquedotto),
+    h("td", {}, h("div", { class: "code" }, g.code), h("div", { class: "nm" }, g.name)),
+    h("td", {}, g.oggetto || h("span", { class: "mut" }, "—")),
+    h("td", {}, g.kind === "call" ? h("span", { class: "badge call" }, "Chiamata") : (g.tipo || h("span", { class: "mut" }, "—"))),
+    h("td", { class: "descr" }, g.descrizione || h("span", { class: "mut" }, "(nessuna descrizione nel ticket)")),
+    h("td", {}, h("span", { class: "badge" + (g.flapping ? " flap" : "") }, String(g.count))),
+    h("td", {}, actions(target), g.taken ? h("div", { class: "tech" + (g.section === "others" ? " other" : " mut") },
+      "in carico: " + (g.tech.length ? g.tech.join(", ") : "tecnico non indicato")) : "")));
+  if (note && note.ids === g.ids) rows.push(noteRow(note));
+  if (open && multi) for (const it of g.items) {
+    const t1 = { ids: [it.id], label: `${g.code} #${it.id}`, call: g.kind === "call", taken: it.taken };
+    rows.push(h("tr", { class: "item" },
+      h("td", {}), h("td", { class: "nowrap" }, fmtWhen(it.opened)),
+      h("td", { colspan: 5 }, h("a", { href: `${me.glpi_url}/front/ticket.form.php?id=${it.id}`, target: "_blank", rel: "noopener" }, "#" + it.id)),
+      h("td", { class: "descr" }, it.descrizione || "—"), h("td", {}), h("td", {}, actions(t1))));
+    if (note && note.ids.length === 1 && note.ids[0] === it.id) rows.push(noteRow(note));
+  }
+}
+
 function render() {
   const f = filters();
   store.set("filters", { acq: f.acq, tipo: f.tipo, flap: f.flap });
   renderHead();
   const vis = groups.filter((g) => matches(g, f)).sort(cmp);
   const rows = [];
-  for (const g of vis) {
-    const open = expanded.has(g.key), multi = g.count > 1;
-    const toggle = () => { open ? expanded.delete(g.key) : expanded.add(g.key); render(); };
-    const target = { ids: g.ids, label: label(g), call: g.kind === "call", taken: g.taken };
-    rows.push(h("tr", { class: "grp" + (g.flapping ? " flap" : "") + (multi ? " multi" : ""), onclick: multi ? toggle : null },
-      h("td", { class: "tog" }, multi ? (open ? "▾" : "▸") : ""),
-      h("td", { class: "nowrap" }, fmtWhen(g.last)),
-      h("td", { class: "nowrap mut" }, multi ? fmtWhen(g.first) : ""),
-      h("td", {}, g.acquedotto),
-      h("td", {}, h("div", { class: "code" }, g.code), h("div", { class: "nm" }, g.name)),
-      h("td", {}, g.oggetto || h("span", { class: "mut" }, "—")),
-      h("td", {}, g.kind === "call" ? h("span", { class: "badge call" }, "Chiamata") : (g.tipo || h("span", { class: "mut" }, "—"))),
-      h("td", { class: "descr" }, g.descrizione || h("span", { class: "mut" }, "(nessuna descrizione nel ticket)")),
-      h("td", {}, h("span", { class: "badge" + (g.flapping ? " flap" : "") }, String(g.count))),
-      h("td", {}, actions(target), g.tech && g.tech.length ? h("div", { class: "mut tech" }, "in carico: " + g.tech.join(", ")) : "")));
-    if (note && note.ids === g.ids) rows.push(noteRow(note));
-    if (open && multi) for (const it of g.items) {
-      const t1 = { ids: [it.id], label: `${g.code} #${it.id}`, call: g.kind === "call", taken: it.taken };
-      rows.push(h("tr", { class: "item" },
-        h("td", {}), h("td", { class: "nowrap" }, fmtWhen(it.opened)),
-        h("td", { colspan: 5 }, h("a", { href: `${me.glpi_url}/front/ticket.form.php?id=${it.id}`, target: "_blank", rel: "noopener" }, "#" + it.id)),
-        h("td", { class: "descr" }, it.descrizione || "—"), h("td", {}), h("td", {}, actions(t1))));
-      if (note && note.ids.length === 1 && note.ids[0] === it.id) rows.push(noteRow(note));
-    }
+  for (const [sec, title, empty] of SECTIONS) {
+    const part = vis.filter((g) => (g.section || "todo") === sec);
+    const n = part.reduce((s, g) => s + g.count, 0);
+    rows.push(h("tr", { class: "sec sec-" + sec }, h("td", { colspan: COLS.length },
+      h("b", {}, title), h("span", { class: "mut" }, ` · ${n} ticket` + (part.length !== n ? ` in ${part.length} gruppi` : "")))));
+    if (!part.length) rows.push(h("tr", {}, h("td", { colspan: COLS.length, class: "empty" }, empty)));
+    for (const g of part) renderGroup(g, rows);
   }
-  if (!vis.length) rows.push(h("tr", {}, h("td", { colspan: COLS.length, class: "empty" },
-    groups.length ? "Nessun allarme corrisponde ai filtri" : "Nessun allarme aperto")));
   $("#tbody").replaceChildren(...rows);
   const n = vis.reduce((s, g) => s + g.count, 0);
   $("#shown").textContent = vis.length === groups.length ? "" : `· visibili ${n} in ${vis.length} gruppi`;

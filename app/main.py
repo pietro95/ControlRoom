@@ -195,6 +195,26 @@ def create_app() -> FastAPI:
             "glpi_url": settings.glpi_public_url,
         }
 
+    me_cache: dict[str, set[str]] = {}  # login AD -> nomi con cui GLPI mostra l'operatore come tecnico
+
+    async def my_names(glpi: GlpiClient, login: str) -> set[str]:
+        if login.lower() not in me_cache:
+            u = await glpi.find_user_info(login)
+            if not u:
+                return {login.lower()}  # non in cache: si riprova al prossimo giro
+            me_cache[login.lower()] = u["names"] | {login.lower()}
+        return me_cache[login.lower()]
+
+    def assign_section(groups: list[dict], mine_names: set[str]) -> None:
+        """mine = tutti presi in carico e almeno uno da me; others = tutti presi in carico da altri; else todo."""
+        for g in groups:
+            if not g["taken"]:
+                g["section"] = "todo"
+            elif any(t.lower() in mine_names for t in g["tech"]):
+                g["section"] = "mine"
+            else:
+                g["section"] = "others"
+
     async def build_queue(glpi: GlpiClient) -> list[dict]:
         """Raggruppa i ticket aperti per sito + tipo di allarme + oggetto interessato.
 
@@ -250,6 +270,7 @@ def create_app() -> FastAPI:
     async def queue(user: dict = Depends(operator_dep), glpi: GlpiClient = Depends(glpi_dep)):
         try:
             groups = await build_queue(glpi)
+            assign_section(groups, await my_names(glpi, user["username"]))
         except GlpiError as e:
             log.warning("queue: %s", e)
             return JSONResponse({"ok": False, "error": "GLPI non raggiungibile"}, status_code=502)
