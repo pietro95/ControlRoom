@@ -50,7 +50,9 @@ async function header(active) {
   const me = await api("/api/me");
   const hd = h("header", {},
     h("div", { class: "brand" },
-      h("img", { src: "/static/img/logo/siciliacque_bianco.svg", alt: "Siciliacque" }),
+      h("img", { src: "/static/img/logo/siciliacque_bianco_38@1x.png",
+        srcset: "/static/img/logo/siciliacque_bianco_38@1x.png 1x, /static/img/logo/siciliacque_bianco_38@2x.png 2x",
+        width: 175, height: 38, alt: "Siciliacque" }),
       h("h1", {}, "Control Room")),
     ...nav(me.roles || [], active),
     themeButton(),
