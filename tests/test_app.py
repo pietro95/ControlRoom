@@ -266,3 +266,17 @@ def test_progress_and_history_only_on_queue_tickets(client):
     assert r["done"] == [] and r["skipped"] == [off_id] and mock_glpi.STATE["tickets"][off_id]["status"] == 1
     assert client.get("/api/history", params={"ids": str(off_id)}).json()["rows"] == []
     assert client.post("/api/progress", json={"ticket_ids": [100], "note": "abc"}).status_code == 403
+
+
+def test_queue_fills_glpi_location_before_take(client):
+    """Codice sito con un'unica Posizione GLPI corrispondente: scritta sul ticket già alla prima lettura."""
+    login(client)
+    q = client.get("/api/queue").json()
+    camp = next(g for g in q["groups"] if g["code"] == "FNC-IS00400")
+    assert camp["sito"] == "CENTRO Fanaco > FNC-IS00400 Campanella" and not camp["taken"]
+    st = mock_glpi.STATE["tickets"]
+    assert all(t["location"] == "CENTRO Fanaco > FNC-IS00400 Campanella" for t in st.values()
+               if "FNC-IS00400" in t["name"])
+    assert all(t["status"] == 1 for t in st.values() if "FNC-IS00400" in t["name"])  # nessuna presa in carico
+    sal = next(g for g in q["groups"] if g["code"] == "ANC-PA02100")  # nessuna Posizione: resta vuoto
+    assert sal["sito"] == "" and all(t["location"] is None for t in st.values() if "ANC-PA02100" in t["name"])

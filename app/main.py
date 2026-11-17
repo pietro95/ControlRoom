@@ -3,6 +3,7 @@ import html
 import logging
 import re
 import secrets
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -248,6 +249,36 @@ def create_app() -> FastAPI:
                     keys.add(t.lower())
             r["tech"], r["tech_keys"] = labels, sorted(keys)
 
+    loc_cache: dict[str, tuple[float, dict | None]] = {}  # codice sito -> (istante, posizione GLPI o None)
+    LOC_TTL_HIT, LOC_TTL_MISS = 3600.0, 300.0
+
+    async def fill_locations(glpi: GlpiClient, rows: list[dict]) -> None:
+        """Posizione GLPI vuota su un ticket con codice sito riconosciuto: la si cerca tra le Posizioni e la si
+        scrive sul ticket appena rilevato, senza aspettare la presa in carico. Errori: ticket lasciato com'è."""
+        now = time.monotonic()
+        for r in rows:
+            if r.get("location") or not r.get("code"):
+                continue
+            code = r["code"]
+            hit = loc_cache.get(code)
+            if not hit or now - hit[0] > (LOC_TTL_HIT if hit[1] else LOC_TTL_MISS):
+                try:
+                    hit = loc_cache[code] = (now, await glpi.location_for_code(code))
+                except GlpiError as e:
+                    log.warning("location_for_code %s: %s", code, e)
+                    continue
+            loc = hit[1]
+            if not loc:
+                continue
+            try:
+                await glpi.set_location(r["id"], loc["id"])
+            except GlpiError as e:
+                log.warning("set_location #%s: %s", r["id"], e)
+                continue
+            r["location"] = loc["name"]
+            store.log("system", "ControlRoom", "set_location", {"ticket": r["id"], "code": code,
+                                                                "location_id": loc["id"], "location": loc["name"]})
+
     async def build_queue(glpi: GlpiClient) -> list[dict]:
         """Raggruppa i ticket aperti per sito + tipo di allarme + oggetto interessato.
 
@@ -255,6 +286,10 @@ def create_app() -> FastAPI:
         sullo stesso sito non finiscono mai nello stesso gruppo (e quindi non si chiudono insieme)."""
         rows = await glpi.open_alerts()
         await resolve_techs(glpi, rows)
+        for r in rows:
+            s = parse_alert_title(r["title"])
+            r["code"] = s.code if s else ""
+        await fill_locations(glpi, rows)
         groups: dict[str, dict] = {}
         for r in rows:
             s = parse_alert_title(r["title"])
@@ -267,9 +302,10 @@ def create_app() -> FastAPI:
             g = groups.setdefault(key, {
                 "key": key, "kind": "alert", "code": s.code if s else f"#{r['id']}",
                 "name": s.name if s else clean(r["title"])[:80], "acquedotto": s.acquedotto if s else "—",
-                "tipo": a.tipo, "oggetto": a.oggetto, "descrizione": a.descrizione,
+                "tipo": a.tipo, "oggetto": a.oggetto, "descrizione": a.descrizione, "sito": "",
                 "ids": [], "items": [], "first": r["opened"], "last": r["opened"],
             })
+            g["sito"] = g["sito"] or r.get("location", "")
             g["ids"].append(r["id"])
             g["items"].append({"id": r["id"], "opened": r["opened"], "descrizione": a.descrizione,
                                "taken": _taken(r), "tech": r.get("tech", []), "tech_keys": r.get("tech_keys", []),
@@ -289,6 +325,7 @@ def create_app() -> FastAPI:
             groups[f"call|{r['id']}"] = {
                 "key": f"call|{r['id']}", "kind": "call", "code": c.code or f"#{r['id']}",
                 "name": c.sito or clean(r["title"])[:80], "acquedotto": c.acquedotto,
+                "sito": r.get("location") or c.sito,
                 "tipo": "Chiamata", "oggetto": "", "descrizione": descr,
                 "ids": [r["id"]], "items": [{"id": r["id"], "opened": r["opened"], "descrizione": descr,
                                               "taken": _taken(r), "tech": r.get("tech", []), "tech_keys": r.get("tech_keys", []),

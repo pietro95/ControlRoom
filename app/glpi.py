@@ -110,12 +110,14 @@ class GlpiClient:
             "forcedisplay[0]": 2, "forcedisplay[1]": 1, "forcedisplay[2]": 12, "forcedisplay[3]": 15,
             "forcedisplay[4]": 21,  # descrizione (corpo) del ticket
             "forcedisplay[5]": 5,  # tecnico assegnato (presa in carico)
+            "forcedisplay[6]": 83,  # posizione (nome completo)
             "sort": 15, "order": "DESC", "range": "0-999",
         }
         data = await self._request("GET", "/search/Ticket", params=params)
         return [
             {"id": int(r["2"]), "title": r["1"], "status": _int(r.get("12")), "opened": r.get("15"),
-             "content": r.get("21") or "", "tech": _names(r.get("5"))}
+             "content": r.get("21") or "", "tech": _names(r.get("5")),
+             "location": (_names(r.get("83")) or [""])[0]}
             for r in (data or {}).get("data", [])
         ]
 
@@ -135,6 +137,16 @@ class GlpiClient:
             params.update({"criteria[0][field]": 1, "criteria[0][searchtype]": "contains", "criteria[0][value]": text})
         data = await self._request("GET", "/search/Location", params=params)
         return [{"id": int(r["2"]), "name": r["1"]} for r in (data or {}).get("data", [])]
+
+    async def location_for_code(self, code: str) -> dict | None:
+        """Posizione GLPI del codice sito (es. FNC-IS00600): l'unica il cui nome contiene il codice come parola.
+
+        Nessuna o più di una corrispondenza -> None (meglio vuoto che un sito sbagliato)."""
+        if not code:
+            return None
+        rx = re.compile(rf"(?<![A-Z0-9]){re.escape(code.upper())}(?![A-Z0-9])")
+        hits = [loc for loc in await self.search_locations(code, limit=20) if rx.search(loc["name"].upper())]
+        return hits[0] if len(hits) == 1 else None
 
     @staticmethod
     def _user_label(first: str | None, last: str | None, login: str | None) -> str:
@@ -209,6 +221,10 @@ class GlpiClient:
             "POST", "/ITILFollowup",
             json={"input": {"itemtype": "Ticket", "items_id": ticket_id, "content": content, "is_private": 0}},
         )
+
+    async def set_location(self, ticket_id: int, location_id: int) -> None:
+        await self._request("PUT", f"/Ticket/{int(ticket_id)}",
+                            json={"input": {"id": ticket_id, "locations_id": int(location_id)}})
 
     async def set_status(self, ticket_id: int, status: int) -> None:
         await self._request("PUT", f"/Ticket/{int(ticket_id)}", json={"input": {"id": ticket_id, "status": status}})

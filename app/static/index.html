@@ -147,7 +147,7 @@ function matches(g, f) {
   if (f.wait === "active" && g.waiting) return false;
   if (f.wait === "waiting" && !g.waiting_count) return false;
   if (!f.q) return true;
-  const hay = [g.code, g.name, g.acquedotto, g.oggetto, g.tipo, g.descrizione,
+  const hay = [g.code, g.name, g.sito, g.acquedotto, g.oggetto, g.tipo, g.descrizione,
     ...g.items.map((i) => "#" + i.id + " " + i.descrizione)].join(" ").toLowerCase();
   return f.q.split(/\s+/).every((w) => hay.includes(w));
 }
@@ -192,7 +192,7 @@ function renderGroup(g, rows) {
     h("td", { class: "nowrap" }, fmtWhen(g.last)),
     h("td", { class: "nowrap mut" }, multi ? fmtWhen(g.first) : ""),
     h("td", {}, g.acquedotto),
-    h("td", {}, h("div", { class: "code" }, g.code), h("div", { class: "nm" }, g.name)),
+    h("td", {}, h("div", { class: "code" }, g.code), h("div", { class: "nm" }, g.name), g.sito ? h("div", { class: "nm", title: "Posizione GLPI" }, g.sito) : null),
     h("td", {}, g.oggetto || h("span", { class: "mut" }, "—")),
     h("td", {}, g.kind === "call" ? h("span", { class: "badge call" }, "Chiamata") : (g.tipo || h("span", { class: "mut" }, "—"))),
     h("td", { class: "descr" }, g.waiting_count ? h("span", { class: "badge wait" }, g.waiting ? "In attesa" : `${g.waiting_count} in attesa`) : "",
