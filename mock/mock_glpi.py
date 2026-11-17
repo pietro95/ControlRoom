@@ -236,7 +236,7 @@ async def ticket_user(tid: int, request: Request, app_token: str = Header(""), s
     login = next((lo for i, lo, *_ in USERS if i == inp["users_id"]), None)
     if not t or not login or inp.get("type") != 2:
         raise HTTPException(400, "ERROR_GLPI_ADD")
-    t["tech"] = "$#$".join(x for x in (t["tech"], login) if x)
+    t["tech"] = "$#$".join(x for x in (t["tech"], str(inp["users_id"])) if x)  # come GLPI: ID utente
     return {"id": tid * 10}
 
 
