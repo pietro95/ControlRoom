@@ -228,3 +228,41 @@ def test_queue_sections_mine_todo_others(client):
     assert gs["MOE-PA00500"]["section"] == "mine"
     assert gs["ANC-PA02100"]["section"] == "others" and gs["ANC-PA02100"]["tech"] == ["lverdi"]
     assert gs["FNC-IS00400"]["section"] == "todo"
+
+
+def test_progress_keeps_ticket_open_with_history_and_wait(client):
+    login(client)
+    ids = next(g["ids"] for g in client.get("/api/queue").json()["groups"] if g["oggetto"] == "Pompa P2")
+    r = client.post("/api/progress", json={"ticket_ids": ids, "note": "Avviata P1"}, headers=H)
+    assert r.status_code == 409 and "in carico" in r.json()["detail"]  # prima chi (presa in carico), poi cosa
+    assert not mock_glpi.STATE["followups"]
+    assert client.post("/api/take", json={"ticket_ids": ids}, headers=H).json()["ok"]
+    assert client.post("/api/progress", json={"ticket_ids": ids, "note": " "}, headers=H).status_code == 422
+    assert client.post("/api/progress", json={"ticket_ids": ids, "note": "x x", "wait": "boh"}, headers=H).status_code == 422
+    r = client.post("/api/progress", json={"ticket_ids": ids, "note": "Avviata P1 di riserva", "wait": "set"},
+                    headers=H).json()
+    assert r["ok"] and sorted(r["done"]) == sorted(ids)
+    st = mock_glpi.STATE
+    assert all(st["tickets"][i]["status"] == 4 for i in ids) and not st["solutions"]
+    g = next(g for g in client.get("/api/queue").json()["groups"] if g["oggetto"] == "Pompa P2")
+    assert g["taken"] and g["tech"] == ["mrossi"]  # l'attesa non toglie la presa in carico
+    assert g["waiting"] and g["waiting_count"] == 3 and all(i["waiting"] for i in g["items"])  # resta in coda
+    client.post("/api/progress", json={"ticket_ids": ids[:1], "note": "Squadra sul posto", "wait": "resume"}, headers=H)
+    assert st["tickets"][ids[0]]["status"] == 2
+    h = client.get("/api/history", params={"ids": ",".join(map(str, ids))}).json()["rows"]
+    assert len(h) == 4 and "Squadra sul posto" in h[0]["text"] and "mrossi" in h[0]["text"]
+    assert "<" not in h[0]["text"] and "&lt;" not in h[0]["text"]
+    g = next(g for g in client.get("/api/queue").json()["groups"] if g["oggetto"] == "Pompa P2")
+    assert not g["waiting"] and g["waiting_count"] == 2
+    r = client.post("/api/resolve", json={"ticket_ids": ids, "outcome": "manovra", "note": "Ripristinata P2"},
+                    headers=H).json()  # un ticket in attesa si chiude normalmente
+    assert r["ok"] and all(st["tickets"][i]["status"] == 5 for i in ids)
+
+
+def test_progress_and_history_only_on_queue_tickets(client):
+    login(client)
+    off_id = next(t["id"] for t in mock_glpi.STATE["tickets"].values() if t["name"].startswith("ALERT OFF"))
+    r = client.post("/api/progress", json={"ticket_ids": [off_id], "note": "prova", "wait": "set"}, headers=H).json()
+    assert r["done"] == [] and r["skipped"] == [off_id] and mock_glpi.STATE["tickets"][off_id]["status"] == 1
+    assert client.get("/api/history", params={"ids": str(off_id)}).json()["rows"] == []
+    assert client.post("/api/progress", json={"ticket_ids": [100], "note": "abc"}).status_code == 403

@@ -10,6 +10,10 @@ Interfaccia a pulsanti sopra GLPI 11 (REST API legacy). Due schermate:
   `app/parsing.py:_KEYS`); in mancanza, descrizione = prima riga del testo. I gruppi con più ticket si espandono
   (clic sulla riga) e mostrano i singoli ticket con link a GLPI. **Rientrato** / **Manovra** (nota obbligatoria)
   chiudono l'intero gruppo o il singolo ticket. I titoli non riconosciuti non si raggruppano mai.
+  **Manovra senza chiusura** (dopo la presa in carico, che resta invariata): dal pannello Manovra, *Salva senza chiudere* aggiunge un followup GLPI (storico) e lascia
+  il ticket in coda; *Salva e metti in attesa* porta il ticket allo stato GLPI "In attesa" (`GLPI_STATUS_WAITING`, 4),
+  *Salva e riprendi* lo riporta a `GLPI_STATUS_RESUME` (2). Il pannello mostra lo storico manovre (followup) dei ticket;
+  la coda evidenzia i ticket in attesa (filtro *Solo attivi* / *Solo in attesa*). I ticket in attesa restano chiudibili.
 - **Nuova chiamata**: sito (ricerca tra le Posizioni GLPI) → chiamante (ricerca tra gli Utenti GLPI attivi, impostato
   come richiedente del ticket) → descrizione. Titolo `CHIAMATA: <codice> – <prima riga della descrizione>`,
   origine Telefono, posizione valorizzata. L'account di servizio GLPI deve avere lettura sugli Utenti.
@@ -271,6 +275,8 @@ nessuna procedura dipende solo dall'app.
 
 ## Limiti noti (MVP)
 - Chiusura di gruppo: "Rientrato" chiude tutti i ticket aperti del sito, anche quelli di ore prima.
+- Storico manovre: solo i followup GLPI (anche quelli scritti a mano in GLPI); max 20 ticket per gruppo nel pannello.
+- Sync/KPI: un ticket "In attesa" conta come aperto (stato < 5); il tempo in attesa non è scorporato dai tempi di risoluzione.
 - Nessun annulla dopo la chiusura; nessuna paginazione oltre 1000 ticket aperti nella coda.
 - Dashboard: la tabella Pareto (5 colonne) scorre in orizzontale sotto i ~1600 px di larghezza; nessun alert Grafana configurato.
 - Sessione 12 h; rate limit login in memoria (si azzera al riavvio).

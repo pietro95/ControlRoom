@@ -9,6 +9,7 @@
   <input id="fq" type="search" placeholder="Cerca sito, oggetto, tipo, descrizione, n° ticket…" autocomplete="off">
   <select id="facq"><option value="">Tutti gli acquedotti</option></select>
   <select id="ftipo"><option value="">Tutti i tipi</option></select>
+  <select id="fwait"><option value="">Attivi e in attesa</option><option value="active">Solo attivi</option><option value="waiting">Solo in attesa</option></select>
   <label class="chk"><input id="fflap" type="checkbox"> Solo ripetuti</label>
   <button class="btn sm ghost" id="freset" type="button">Azzera</button>
   <button class="btn sm ghost" id="fexp" type="button">Espandi tutto</button>
@@ -53,6 +54,35 @@ function fmtWhen(s) { // oggi -> "09:12"; altri giorni -> "16/11 09:12"
 }
 const label = (g) => `${g.code}${g.oggetto ? " · " + g.oggetto : ""}`;
 
+async function progress(target, text, wait) {
+  busy = true;
+  try {
+    const r = await api("/api/progress", { body: { ticket_ids: target.ids, note: text, wait } });
+    const what = wait === "set" ? "messi in attesa" : wait === "resume" ? "ripresi" : "aggiornati";
+    toast(r.ok ? `${target.label}: ${r.done.length} ticket ${what} (restano aperti)`
+      : `${target.label}: ${r.failed.length} NON aggiornati — ${r.error || "riprova"}`, r.ok ? 3500 : 8000);
+  } catch (e) { toast("Errore: " + e.message, 6000); }
+  busy = false; note = null; load();
+}
+
+async function loadHistory(target) {
+  try {
+    const r = await api("/api/history?ids=" + target.ids.slice(0, 20).join(","));
+    target.history = r.rows;
+  } catch (e) { target.history = []; target.historyErr = e.message; }
+  if (note === target) render();
+}
+
+function historyBox(target) {
+  if (!target.history) return h("div", { class: "hist mut" }, "Caricamento storico…");
+  if (target.historyErr) return h("div", { class: "hist mut" }, "Storico non disponibile: " + target.historyErr);
+  if (!target.history.length) return h("div", { class: "hist mut" }, "Nessuna manovra registrata finora.");
+  return h("div", { class: "hist" }, h("div", { class: "hist-t" }, "Storico manovre"),
+    ...target.history.map((r) => h("div", { class: "hist-r" },
+      h("span", { class: "nowrap mut" }, fmtWhen(r.date) + (target.ids.length > 1 ? ` · #${r.ticket}` : "")),
+      h("span", { class: "hist-x" }, r.text))));
+}
+
 async function resolve(target, outcome, text) {
   busy = true;
   try {
@@ -77,23 +107,36 @@ function actions(target) {
   if (!target.taken) return h("div", { class: "actions" },
     h("button", { class: "btn sm", onclick: (ev) => { ev.stopPropagation(); take(target); } }, "Prendi in carico"));
   if (target.call) return h("div", { class: "actions" },
-    h("button", { class: "btn sm warn", onclick: (ev) => { ev.stopPropagation(); note = target; render(); } }, "Chiudi…"));
+    h("button", { class: "btn sm warn", onclick: (ev) => { ev.stopPropagation(); note = target; loadHistory(target); render(); } },
+      target.waiting ? "Aggiorna / storico…" : "Aggiorna / chiudi…"));
   return h("div", { class: "actions" },
     h("button", { class: "btn sm ok", onclick: (ev) => { ev.stopPropagation(); resolve(target, "rientrato", ""); } }, "Rientrato"),
-    h("button", { class: "btn sm warn", onclick: (ev) => { ev.stopPropagation(); note = target; render(); } }, "Manovra…"));
+    h("button", { class: "btn sm warn", onclick: (ev) => { ev.stopPropagation(); note = target; loadHistory(target); render(); } },
+      target.waiting ? "Manovra / storico…" : "Manovra…"));
 }
 
 function noteRow(target) {
-  const inp = h("input", { placeholder: `Cosa è stato fatto su ${target.label}? (obbligatorio)`, maxlength: 500 });
-  const ok = () => {
-    if (inp.value.trim().length < 3) { toast("Scrivi cosa hai fatto"); inp.focus(); return; }
-    resolve(target, target.call ? "altro" : "manovra", inp.value);
+  // l'input sopravvive ai ridisegni (arrivo dello storico): testo e focus non si perdono
+  const inp = target.inp || (target.inp = h("input", { placeholder: `Cosa è stato fatto su ${target.label}? (obbligatorio)`, maxlength: 500 }));
+  const valid = () => {
+    if (inp.value.trim().length >= 3) return true;
+    toast("Scrivi cosa hai fatto"); inp.focus(); return false;
   };
-  inp.addEventListener("keydown", (e) => { if (e.key === "Enter") ok(); if (e.key === "Escape") { note = null; render(); } });
-  setTimeout(() => inp.focus(), 0);
+  const close = () => valid() && resolve(target, target.call ? "altro" : "manovra", inp.value);
+  const keep = (wait) => valid() && progress(target, inp.value, wait);
+  if (!target.bound) {
+    target.bound = true;
+    inp.addEventListener("keydown", (e) => { if (e.key === "Escape") { note = null; render(); } });
+    setTimeout(() => inp.focus(), 0);
+  }
   return h("tr", { class: "noterow" }, h("td", { colspan: COLS.length },
+    historyBox(target),
     h("div", { class: "note open" }, inp,
-      h("button", { class: "btn sm warn", onclick: ok }, target.call ? "Conferma chiusura" : "Conferma manovra"),
+      h("button", { class: "btn sm warn", onclick: close, title: "Registra e chiude il ticket" }, target.call ? "Chiudi ticket" : "Manovra e chiudi"),
+      h("button", { class: "btn sm", onclick: () => keep("keep"), title: "Registra nello storico, il ticket resta aperto" }, "Salva senza chiudere"),
+      target.waiting
+        ? h("button", { class: "btn sm", onclick: () => keep("resume"), title: "Registra e toglie il ticket dall'attesa" }, "Salva e riprendi")
+        : h("button", { class: "btn sm", onclick: () => keep("set"), title: "Registra e mette il ticket In attesa (es. squadra in arrivo, ricambio)" }, "Salva e metti in attesa"),
       h("button", { class: "btn sm ghost", onclick: () => { note = null; render(); } }, "Annulla"))));
 }
 
@@ -101,6 +144,8 @@ function matches(g, f) {
   if (f.acq && g.acquedotto !== f.acq) return false;
   if (f.tipo && (g.tipo || "(non indicato)") !== f.tipo) return false;
   if (f.flap && !g.flapping) return false;
+  if (f.wait === "active" && g.waiting) return false;
+  if (f.wait === "waiting" && !g.waiting_count) return false;
   if (!f.q) return true;
   const hay = [g.code, g.name, g.acquedotto, g.oggetto, g.tipo, g.descrizione,
     ...g.items.map((i) => "#" + i.id + " " + i.descrizione)].join(" ").toLowerCase();
@@ -117,7 +162,7 @@ function cmp(a, b) {
 }
 
 function filters() {
-  return { q: $("#fq").value.trim().toLowerCase(), acq: $("#facq").value, tipo: $("#ftipo").value, flap: $("#fflap").checked };
+  return { q: $("#fq").value.trim().toLowerCase(), acq: $("#facq").value, tipo: $("#ftipo").value, flap: $("#fflap").checked, wait: $("#fwait").value };
 }
 
 function fillSelect(sel, values) {
@@ -140,8 +185,9 @@ function renderHead() {
 function renderGroup(g, rows) {
   const open = expanded.has(g.key), multi = g.count > 1;
   const toggle = () => { open ? expanded.delete(g.key) : expanded.add(g.key); render(); };
-  const target = { ids: g.ids, label: label(g), call: g.kind === "call", taken: g.taken };
-  rows.push(h("tr", { class: "grp" + (g.flapping ? " flap" : "") + (multi ? " multi" : ""), onclick: multi ? toggle : null },
+  const target = note && note.key === g.key ? note
+    : { key: g.key, ids: g.ids, label: label(g), call: g.kind === "call", taken: g.taken, waiting: g.waiting };
+  rows.push(h("tr", { class: "grp" + (g.flapping ? " flap" : "") + (multi ? " multi" : "") + (g.waiting ? " waiting" : ""), onclick: multi ? toggle : null },
     h("td", { class: "tog" }, multi ? (open ? "▾" : "▸") : ""),
     h("td", { class: "nowrap" }, fmtWhen(g.last)),
     h("td", { class: "nowrap mut" }, multi ? fmtWhen(g.first) : ""),
@@ -149,24 +195,28 @@ function renderGroup(g, rows) {
     h("td", {}, h("div", { class: "code" }, g.code), h("div", { class: "nm" }, g.name)),
     h("td", {}, g.oggetto || h("span", { class: "mut" }, "—")),
     h("td", {}, g.kind === "call" ? h("span", { class: "badge call" }, "Chiamata") : (g.tipo || h("span", { class: "mut" }, "—"))),
-    h("td", { class: "descr" }, g.descrizione || h("span", { class: "mut" }, "(nessuna descrizione nel ticket)")),
+    h("td", { class: "descr" }, g.waiting_count ? h("span", { class: "badge wait" }, g.waiting ? "In attesa" : `${g.waiting_count} in attesa`) : "",
+      g.waiting_count ? " " : "", g.descrizione || h("span", { class: "mut" }, "(nessuna descrizione nel ticket)")),
     h("td", {}, h("span", { class: "badge" + (g.flapping ? " flap" : "") }, String(g.count))),
     h("td", {}, actions(target), g.taken ? h("div", { class: "tech" + (g.section === "others" ? " other" : " mut") },
       "in carico: " + (g.tech.length ? g.tech.join(", ") : "tecnico non indicato")) : "")));
-  if (note && note.ids === g.ids) rows.push(noteRow(note));
+  if (note && note.key === g.key) rows.push(noteRow(note));
   if (open && multi) for (const it of g.items) {
-    const t1 = { ids: [it.id], label: `${g.code} #${it.id}`, call: g.kind === "call", taken: it.taken };
-    rows.push(h("tr", { class: "item" },
+    const k1 = "#" + it.id;
+    const t1 = note && note.key === k1 ? note
+      : { key: k1, ids: [it.id], label: `${g.code} #${it.id}`, call: g.kind === "call", taken: it.taken, waiting: it.waiting };
+    rows.push(h("tr", { class: "item" + (it.waiting ? " waiting" : "") },
       h("td", {}), h("td", { class: "nowrap" }, fmtWhen(it.opened)),
       h("td", { colspan: 5 }, h("a", { href: `${me.glpi_url}/front/ticket.form.php?id=${it.id}`, target: "_blank", rel: "noopener" }, "#" + it.id)),
-      h("td", { class: "descr" }, it.descrizione || "—"), h("td", {}), h("td", {}, actions(t1))));
-    if (note && note.ids.length === 1 && note.ids[0] === it.id) rows.push(noteRow(note));
+      h("td", { class: "descr" }, it.waiting ? h("span", { class: "badge wait" }, "In attesa") : "", it.waiting ? " " : "",
+        it.descrizione || "—"), h("td", {}), h("td", {}, actions(t1))));
+    if (note && note.key === k1) rows.push(noteRow(note));
   }
 }
 
 function render() {
   const f = filters();
-  store.set("filters", { acq: f.acq, tipo: f.tipo, flap: f.flap });
+  store.set("filters", { acq: f.acq, tipo: f.tipo, flap: f.flap, wait: f.wait });
   renderHead();
   const vis = groups.filter((g) => matches(g, f)).sort(cmp);
   const rows = [];
@@ -208,9 +258,10 @@ async function load() {
   const f = store.get("filters", {});
   for (const [id, v] of [["#facq", f.acq], ["#ftipo", f.tipo]]) if (v) $(id).append(h("option", { value: v }, v)), $(id).value = v;
   $("#fflap").checked = !!f.flap;
+  $("#fwait").value = f.wait || "";
   let t; $("#fq").addEventListener("input", () => { clearTimeout(t); t = setTimeout(render, 150); });
-  for (const id of ["#facq", "#ftipo", "#fflap"]) $(id).addEventListener("change", render);
-  $("#freset").addEventListener("click", () => { $("#fq").value = ""; $("#facq").value = ""; $("#ftipo").value = ""; $("#fflap").checked = false; render(); });
+  for (const id of ["#facq", "#ftipo", "#fflap", "#fwait"]) $(id).addEventListener("change", render);
+  $("#freset").addEventListener("click", () => { $("#fq").value = ""; $("#facq").value = ""; $("#ftipo").value = ""; $("#fflap").checked = false; $("#fwait").value = ""; render(); });
   $("#fexp").addEventListener("click", () => {
     const vis = groups.filter((g) => g.count > 1 && matches(g, filters()));
     const all = vis.every((g) => expanded.has(g.key));
