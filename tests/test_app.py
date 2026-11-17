@@ -92,7 +92,7 @@ def test_resolve_rientrato_closes_whole_group(client):
     t = client.post("/api/take", json={"ticket_ids": ids}, headers=H).json()
     assert t["ok"] and sorted(t["done"]) == sorted(ids)
     g = next(g for g in client.get("/api/queue").json()["groups"] if g["oggetto"] == "Pompa P2")
-    assert g["taken"] and g["tech"] == ["mrossi"]
+    assert g["taken"] and g["tech"] == ["Rossi Marco (mrossi)"]
     assert all(mock_glpi.STATE["tickets"][i]["status"] == 2 for i in ids)
     r = client.post("/api/resolve", json={"ticket_ids": ids, "outcome": "rientrato"}, headers=H).json()
     assert r["ok"] and sorted(r["done"]) == sorted(ids)
@@ -204,7 +204,7 @@ def test_glpi_down_gives_502_not_crash(client):
 def test_glpi_refusal_reason_shown_to_operator(client):
     login(client)
     tid = next(g["ids"][0] for g in client.get("/api/queue").json()["groups"] if g["code"] == "MOE-PA00500")
-    mock_glpi.STATE["tickets"][tid]["tech"] = "mrossi"  # assegnato ma ancora "Nuovo": GLPI rifiuta
+    mock_glpi.STATE["tickets"][tid]["tech"] = "10"  # assegnato ma ancora "Nuovo": GLPI rifiuta
     r = client.post("/api/resolve", json={"ticket_ids": [tid], "outcome": "rientrato"}, headers=H).json()
     assert not r["ok"] and r["failed"] == [tid] and "diritti sufficienti" in r["error"]
 
@@ -223,10 +223,10 @@ def test_queue_sections_mine_todo_others(client):
     assert {g["section"] for g in gs.values()} == {"todo"}
     client.post("/api/take", json={"ticket_ids": gs["MOE-PA00500"]["ids"]}, headers=H)
     other = gs["ANC-PA02100"]["ids"][0]
-    mock_glpi.STATE["tickets"][other].update(status=2, tech="lverdi")  # preso da un collega
+    mock_glpi.STATE["tickets"][other].update(status=2, tech="8")  # preso da un collega (GLPI dà l'ID)
     gs = {g["code"]: g for g in client.get("/api/queue").json()["groups"]}
     assert gs["MOE-PA00500"]["section"] == "mine"
-    assert gs["ANC-PA02100"]["section"] == "others" and gs["ANC-PA02100"]["tech"] == ["lverdi"]
+    assert gs["ANC-PA02100"]["section"] == "others" and gs["ANC-PA02100"]["tech"] == ["Verdi Luca (lverdi)"]
     assert gs["FNC-IS00400"]["section"] == "todo"
 
 
@@ -245,7 +245,7 @@ def test_progress_keeps_ticket_open_with_history_and_wait(client):
     st = mock_glpi.STATE
     assert all(st["tickets"][i]["status"] == 4 for i in ids) and not st["solutions"]
     g = next(g for g in client.get("/api/queue").json()["groups"] if g["oggetto"] == "Pompa P2")
-    assert g["taken"] and g["tech"] == ["mrossi"]  # l'attesa non toglie la presa in carico
+    assert g["taken"] and g["tech"] == ["Rossi Marco (mrossi)"]  # l'attesa non toglie la presa in carico
     assert g["waiting"] and g["waiting_count"] == 3 and all(i["waiting"] for i in g["items"])  # resta in coda
     client.post("/api/progress", json={"ticket_ids": ids[:1], "note": "Squadra sul posto", "wait": "resume"}, headers=H)
     assert st["tickets"][ids[0]]["status"] == 2

@@ -208,7 +208,7 @@ def create_app() -> FastAPI:
             u = await glpi.find_user_info(login)
             if not u:
                 return {login.lower()}  # non in cache: si riprova al prossimo giro
-            me_cache[login.lower()] = u["names"] | {login.lower()}
+            me_cache[login.lower()] = u["names"] | {login.lower(), str(u["id"])}
         return me_cache[login.lower()]
 
     def assign_section(groups: list[dict], mine_names: set[str]) -> None:
@@ -216,10 +216,37 @@ def create_app() -> FastAPI:
         for g in groups:
             if not g["taken"]:
                 g["section"] = "todo"
-            elif any(t.lower() in mine_names for t in g["tech"]):
+            elif any(k in mine_names for k in g["tech_keys"]):
                 g["section"] = "mine"
             else:
                 g["section"] = "others"
+
+    user_cache: dict[str, tuple[str, str]] = {}  # id utente GLPI -> (etichetta, login)
+
+    async def resolve_techs(glpi: GlpiClient, rows: list[dict]) -> None:
+        """Il campo 5 della ricerca GLPI restituisce l'ID utente: lo si traduce in nome (con cache)."""
+        for r in rows:
+            labels, keys = [], set()
+            for t in r.get("tech", []):
+                if t.isdigit():
+                    if t not in user_cache:
+                        try:
+                            u = await glpi.get_user(int(t))
+                        except GlpiError:
+                            u = None
+                        if not u:
+                            labels.append(f"utente GLPI #{t}")  # non in cache: si riprova al prossimo giro
+                            keys.add(t)
+                            continue
+                        login = u["name"].rsplit("(", 1)[-1].rstrip(")") if u["name"].endswith(")") else ""
+                        user_cache[t] = (u["name"], login)
+                    label, login = user_cache[t]
+                    labels.append(label)
+                    keys |= {t, label.lower(), login.lower()} - {""}
+                else:
+                    labels.append(t)
+                    keys.add(t.lower())
+            r["tech"], r["tech_keys"] = labels, sorted(keys)
 
     async def build_queue(glpi: GlpiClient) -> list[dict]:
         """Raggruppa i ticket aperti per sito + tipo di allarme + oggetto interessato.
@@ -227,6 +254,7 @@ def create_app() -> FastAPI:
         Se il corpo non indica né tipo né oggetto, la descrizione fa da discriminante: allarmi diversi
         sullo stesso sito non finiscono mai nello stesso gruppo (e quindi non si chiudono insieme)."""
         rows = await glpi.open_alerts()
+        await resolve_techs(glpi, rows)
         groups: dict[str, dict] = {}
         for r in rows:
             s = parse_alert_title(r["title"])
@@ -244,14 +272,16 @@ def create_app() -> FastAPI:
             })
             g["ids"].append(r["id"])
             g["items"].append({"id": r["id"], "opened": r["opened"], "descrizione": a.descrizione,
-                               "taken": _taken(r), "tech": r.get("tech", []),
+                               "taken": _taken(r), "tech": r.get("tech", []), "tech_keys": r.get("tech_keys", []),
                                "waiting": is_waiting(r.get("status"))})
             if r["opened"] and (not g["first"] or r["opened"] < g["first"]):
                 g["first"] = r["opened"]
             if r["opened"] and (not g["last"] or r["opened"] >= g["last"]):
                 g["last"] = r["opened"]
                 g["descrizione"] = a.descrizione or g["descrizione"]  # la più recente
-        for r in await glpi.open_calls():  # chiamate dal campo: una riga per ticket, mai raggruppate
+        calls = await glpi.open_calls()
+        await resolve_techs(glpi, calls)
+        for r in calls:  # chiamate dal campo: una riga per ticket, mai raggruppate
             c = parse_call(r["title"], r.get("content", ""))
             if not c:
                 continue
@@ -261,7 +291,7 @@ def create_app() -> FastAPI:
                 "name": c.sito or clean(r["title"])[:80], "acquedotto": c.acquedotto,
                 "tipo": "Chiamata", "oggetto": "", "descrizione": descr,
                 "ids": [r["id"]], "items": [{"id": r["id"], "opened": r["opened"], "descrizione": descr,
-                                              "taken": _taken(r), "tech": r.get("tech", []),
+                                              "taken": _taken(r), "tech": r.get("tech", []), "tech_keys": r.get("tech_keys", []),
                                               "waiting": is_waiting(r.get("status"))}],
                 "first": r["opened"], "last": r["opened"],
             }
@@ -271,6 +301,7 @@ def create_app() -> FastAPI:
             g["count"] = len(g["ids"])
             g["taken"] = all(i["taken"] for i in g["items"])  # chiudibile solo se TUTTI presi in carico
             g["tech"] = sorted({t for i in g["items"] for t in i["tech"]})
+            g["tech_keys"] = sorted({k for i in g["items"] for k in i.get("tech_keys", [])})
             g["flapping"] = g["count"] >= settings.flapping_threshold
             g["waiting_count"] = sum(i["waiting"] for i in g["items"])
             g["waiting"] = g["waiting_count"] == g["count"]  # gruppo "in attesa" solo se lo sono tutti
