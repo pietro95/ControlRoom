@@ -107,10 +107,12 @@ services:
       GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
       GF_NEWS_NEWS_FEED_ENABLED: "false"
       GF_DATE_FORMATS_DEFAULT_TIMEZONE: Europe/Rome
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/overview.json
       GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD}
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks:
       grafana_net: { ipv4_address: 172.30.99.11 }
       db_net: {}

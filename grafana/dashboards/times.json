@@ -1,0 +1,392 @@
+{
+  "uid": "cr-times",
+  "title": "Control Room – Tempi di gestione",
+  "tags": [
+    "controlroom"
+  ],
+  "timezone": "Europe/Rome",
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5m",
+  "time": {
+    "from": "now-180d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "acquedotto",
+        "label": "Acquedotto",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "reporting"
+        },
+        "query": "SELECT DISTINCT coalesce(acquedotto, '—') FROM v_alert ORDER BY 1",
+        "definition": "SELECT DISTINCT coalesce(acquedotto, '—') FROM v_alert ORDER BY 1",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "sort": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Fonte dati",
+      "description": "'GLPI' in produzione. Se compare SINTETICO i numeri sono generati da scripts/gen_synthetic.py.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 10,
+        "h": 3
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT dataset_label AS \"Fonte\" FROM v_sync_status",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/"
+        }
+      },
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "Ultima sincronizzazione riuscita",
+      "description": "I grafici mostrano i dati fino a questo momento. Se GLPI non risponde il valore smette di avanzare.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 10,
+        "y": 0,
+        "w": 7,
+        "h": 3
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT extract(epoch FROM last_success_at) * 1000 AS \"Ultima sync\" FROM v_sync_status",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeFromNow"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        }
+      },
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "Errore ultimo tentativo",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 17,
+        "y": 0,
+        "w": 7,
+        "h": 3
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT coalesce(last_error, 'nessuno') AS \"Errore\" FROM v_sync_status",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/"
+        }
+      },
+      "id": 3
+    },
+    {
+      "type": "text",
+      "title": "Definizione",
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 16,
+        "h": 3
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**Tempo di gestione = data di risoluzione − data di apertura** (solvedate, mai closedate: la chiusura è automatica alle 08:00). Esclusi i ticket senza data di risoluzione. Ora = ora di apertura, Europe/Rome."
+      },
+      "id": 4
+    },
+    {
+      "type": "stat",
+      "title": "Esclusi dai tempi (senza solvedate)",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 3,
+        "w": 8,
+        "h": 3
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT count(*) FILTER (WHERE ttr_min IS NULL) AS \"Esclusi\", count(ttr_min) AS \"Con tempo\" FROM v_alert WHERE $__timeFilter(opened_at) AND coalesce(acquedotto, '—') IN ($acquedotto)",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "none",
+        "colorMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        }
+      },
+      "id": 5
+    },
+    {
+      "type": "barchart",
+      "title": "Mediana e p90 per ora di apertura",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT lpad(h::text, 2, '0') || ':00' AS \"Ora\", percentile_cont(0.5) WITHIN GROUP (ORDER BY ttr_min) AS \"Mediana\", percentile_cont(0.9) WITHIN GROUP (ORDER BY ttr_min) AS \"p90\", count(ttr_min) AS \"n\" FROM generate_series(0, 23) h LEFT JOIN v_alert a ON a.hour_local = h AND ttr_min IS NOT NULL AND $__timeFilter(opened_at) AND coalesce(acquedotto, '—') IN ($acquedotto) GROUP BY h ORDER BY h",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "n"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "viz": true,
+                  "legend": true,
+                  "tooltip": false
+                }
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "orientation": "auto",
+        "showValue": "auto",
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "xTickLabelRotation": 0
+      },
+      "id": 6
+    },
+    {
+      "type": "table",
+      "title": "Mediana e p90 per acquedotto",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT coalesce(acquedotto, '—') AS \"Acquedotto\", percentile_cont(0.5) WITHIN GROUP (ORDER BY ttr_min) AS \"Mediana (min)\", percentile_cont(0.9) WITHIN GROUP (ORDER BY ttr_min) AS \"p90 (min)\", count(ttr_min) AS \"n\" FROM v_alert WHERE ttr_min IS NOT NULL AND $__timeFilter(opened_at) AND coalesce(acquedotto, '—') IN ($acquedotto) GROUP BY 1 ORDER BY 2 DESC",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {},
+      "id": 7
+    },
+    {
+      "type": "timeseries",
+      "title": "Mediana e p90 settimanali",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT (date_trunc('week', opened_local) AT TIME ZONE 'Europe/Rome') AS time, percentile_cont(0.5) WITHIN GROUP (ORDER BY ttr_min) AS \"Mediana\", percentile_cont(0.9) WITHIN GROUP (ORDER BY ttr_min) AS \"p90\" FROM v_alert WHERE ttr_min IS NOT NULL AND $__timeFilter(opened_at) AND coalesce(acquedotto, '—') IN ($acquedotto) GROUP BY 1 ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {},
+      "id": 8
+    }
+  ],
+  "links": [
+    {
+      "title": "Control Room",
+      "type": "dashboards",
+      "tags": [
+        "controlroom"
+      ],
+      "asDropdown": false
+    }
+  ]
+}

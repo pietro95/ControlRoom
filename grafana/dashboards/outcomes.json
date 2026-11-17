@@ -1,0 +1,499 @@
+{
+  "uid": "cr-outcomes",
+  "title": "Control Room – Esiti",
+  "tags": [
+    "controlroom"
+  ],
+  "timezone": "Europe/Rome",
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5m",
+  "time": {
+    "from": "now-180d",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "acquedotto",
+        "label": "Acquedotto",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "reporting"
+        },
+        "query": "SELECT DISTINCT coalesce(acquedotto, '—') FROM v_alert ORDER BY 1",
+        "definition": "SELECT DISTINCT coalesce(acquedotto, '—') FROM v_alert ORDER BY 1",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "sort": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Fonte dati",
+      "description": "'GLPI' in produzione. Se compare SINTETICO i numeri sono generati da scripts/gen_synthetic.py.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 10,
+        "h": 3
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT dataset_label AS \"Fonte\" FROM v_sync_status",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "textMode": "value",
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/"
+        }
+      },
+      "id": 1
+    },
+    {
+      "type": "stat",
+      "title": "Ultima sincronizzazione riuscita",
+      "description": "I grafici mostrano i dati fino a questo momento. Se GLPI non risponde il valore smette di avanzare.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 10,
+        "y": 0,
+        "w": 7,
+        "h": 3
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT extract(epoch FROM last_success_at) * 1000 AS \"Ultima sync\" FROM v_sync_status",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeFromNow"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        }
+      },
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "Errore ultimo tentativo",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 17,
+        "y": 0,
+        "w": 7,
+        "h": 3
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT coalesce(last_error, 'nessuno') AS \"Errore\" FROM v_sync_status",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/.*/"
+        }
+      },
+      "id": 3
+    },
+    {
+      "type": "text",
+      "title": "Nota",
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 16,
+        "h": 3
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Il tipo di soluzione esiste solo per i ticket chiusi dall'app o dopo la sua adozione: lo storico è **Non classificato**, e la quota è mostrata esplicitamente."
+      },
+      "id": 4
+    },
+    {
+      "type": "stat",
+      "title": "Quota non classificata nel periodo",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 3,
+        "w": 8,
+        "h": 3
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT avg((outcome = 'Non classificato')::int) AS \"Non classificati\" FROM v_alert WHERE $__timeFilter(opened_at) AND coalesce(acquedotto, '—') IN ($acquedotto) AND NOT is_open",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "none",
+        "colorMode": "none"
+      },
+      "id": 5
+    },
+    {
+      "type": "timeseries",
+      "title": "Esiti per settimana",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 16,
+        "h": 11
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT (date_trunc('week', opened_local) AT TIME ZONE 'Europe/Rome') AS time, outcome AS metric, count(*) AS value FROM v_alert WHERE $__timeFilter(opened_at) AND coalesce(acquedotto, '—') IN ($acquedotto) AND NOT is_open GROUP BY 1, 2 ORDER BY 1",
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Rientrato"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Manovra"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Altro"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Non classificato"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8e8e8e"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {},
+      "id": 6
+    },
+    {
+      "type": "piechart",
+      "title": "Ripartizione esiti nel periodo",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 6,
+        "w": 8,
+        "h": 11
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT outcome AS \"Esito\", count(*) AS \"Alert\" FROM v_alert WHERE $__timeFilter(opened_at) AND coalesce(acquedotto, '—') IN ($acquedotto) AND NOT is_open GROUP BY 1 ORDER BY 2 DESC",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Rientrato"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Manovra"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Altro"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Non classificato"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#8e8e8e"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "values": true,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "pieType": "donut",
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "bottom",
+          "values": [
+            "value",
+            "percent"
+          ]
+        }
+      },
+      "id": 7
+    },
+    {
+      "type": "table",
+      "title": "Esiti per operatore (solo chiusure tracciate dall'app)",
+      "description": "Operatore dall'audit dell'app o dalla riga nel testo della soluzione. 'Ultima modifica di' di GLPI non è usato.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "reporting"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "reporting"
+          },
+          "rawSql": "SELECT handled_by AS \"Operatore\", count(*) AS \"Alert\", count(*) FILTER (WHERE outcome = 'Rientrato') AS \"Rientrato\", count(*) FILTER (WHERE outcome = 'Manovra') AS \"Manovra\", count(*) FILTER (WHERE outcome = 'Altro') AS \"Altro\" FROM v_alert WHERE $__timeFilter(opened_at) AND coalesce(acquedotto, '—') IN ($acquedotto) AND handled_by <> 'sconosciuto' GROUP BY 1 ORDER BY 2 DESC",
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {},
+      "id": 8
+    }
+  ],
+  "links": [
+    {
+      "title": "Control Room",
+      "type": "dashboards",
+      "tags": [
+        "controlroom"
+      ],
+      "asDropdown": false
+    }
+  ]
+}

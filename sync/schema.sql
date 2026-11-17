@@ -163,5 +163,7 @@ SELECT max(CASE WHEN key = 'last_success_at' THEN value END)::timestamptz AS las
        max(CASE WHEN key = 'last_attempt_at' THEN value END)::timestamptz AS last_attempt_at,
        max(CASE WHEN key = 'last_error'      THEN value END)              AS last_error,
        max(CASE WHEN key = 'last_reconcile_at' THEN value END)::timestamptz AS last_reconcile_at,
+       -- valorizzato SOLO dal generatore di dati sintetici: le dashboard lo mostrano in evidenza
+       coalesce(max(CASE WHEN key = 'dataset_label' THEN value END), 'GLPI')  AS dataset_label,
        (SELECT count(*) FROM ticket)                                      AS ticket_in_db
 FROM sync_state;
