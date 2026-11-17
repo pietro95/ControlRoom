@@ -49,22 +49,44 @@ def test_login_rate_limit(client):
     limiter._fails.clear()
 
 
+def test_parse_body():
+    from app.parsing import parse_alert_body
+    a = parse_alert_body("&amp;lt;p&amp;gt;Tipo allarme: Blocco pompa&amp;lt;br /&amp;gt;Oggetto: Pompa P2"
+                         "&amp;lt;br&amp;gt;Descrizione: Intervento termico&amp;lt;/p&amp;gt;")
+    assert (a.tipo, a.oggetto, a.descrizione) == ("Blocco pompa", "Pompa P2", "Intervento termico")
+    b = parse_alert_body("ALERT ON: X\n\nMancanza rete ENEL\naltro")
+    assert (b.tipo, b.oggetto, b.descrizione) == ("", "", "Mancanza rete ENEL")
+    assert parse_alert_body("").descrizione == ""
+
+
 def test_queue_grouping(client):
     login(client)
+    mock_glpi.add_ticket("ALERT ON: FNC-IS00400-Campanella", "2026-11-17 09:10:00",
+                         content="Tipo allarme: Livello\nOggetto: Vasca V1\nDescrizione: Livello minimo vasca V1")
     q = client.get("/api/queue").json()
-    by = {g["code"]: g for g in q["groups"]}
-    assert by["FNC-IS00400"]["count"] == 3 and by["FNC-IS00400"]["flapping"] is True
-    assert by["ANC-PA02100"]["count"] == 1 and by["ANC-PA02100"]["flapping"] is False
+    camp = [g for g in q["groups"] if g["code"] == "FNC-IS00400"]
+    by = {g["oggetto"]: g for g in camp}  # stesso sito, oggetti/tipi diversi -> gruppi distinti
+    assert set(by) == {"Pompa P2", "Vasca V1"}
+    p = by["Pompa P2"]
+    assert p["count"] == 3 and p["flapping"] is True and p["tipo"] == "Blocco pompa"
+    assert p["descrizione"] == "Intervento termico pompa P2" and len(p["items"]) == 3
+    assert p["items"][0]["opened"] >= p["items"][-1]["opened"]
+    assert by["Vasca V1"]["count"] == 1 and by["Vasca V1"]["tipo"] == "Livello"
+    sal = next(g for g in q["groups"] if g["code"] == "ANC-PA02100")
+    assert sal["count"] == 1 and sal["flapping"] is False and sal["descrizione"] == "Mancanza rete ENEL"
     odd = [g for g in q["groups"] if g["code"].startswith("#")]  # titolo non riconosciuto: visibile, mai raggruppato
     assert len(odd) == 1 and odd[0]["count"] == 1 and "Titolo strano" in odd[0]["name"]
     assert not any("Baronessa" in g["name"] for g in q["groups"])  # ALERT OFF escluso
-    assert q["total"] == 6
+    assert q["total"] == 7
+    assert len({g["key"] for g in q["groups"]}) == len(q["groups"])
     assert q["groups"][0]["code"] == "ANC-PA02100"  # ordinato per ultimo alert
 
 
 def test_resolve_rientrato_closes_whole_group(client):
     login(client)
-    ids = next(g["ids"] for g in client.get("/api/queue").json()["groups"] if g["code"] == "FNC-IS00400")
+    mock_glpi.add_ticket("ALERT ON: FNC-IS00400-Campanella", "2026-11-17 09:10:00",
+                         content="Tipo allarme: Livello\nOggetto: Vasca V1")
+    ids = next(g["ids"] for g in client.get("/api/queue").json()["groups"] if g["oggetto"] == "Pompa P2")
     r = client.post("/api/resolve", json={"ticket_ids": ids, "outcome": "rientrato"}, headers=H).json()
     assert r["ok"] and sorted(r["done"]) == sorted(ids)
     st = client.get("/_noop").status_code if False else mock_glpi.STATE
@@ -72,7 +94,8 @@ def test_resolve_rientrato_closes_whole_group(client):
     sol = st["solutions"][0]
     assert sol["solutiontypes_id"] == 1 and "mrossi" in sol["content"] and sol["itemtype"] == "Ticket"
     assert st["entity"] == 14
-    assert "FNC-IS00400" not in [g["code"] for g in client.get("/api/queue").json()["groups"]]
+    left = [g for g in client.get("/api/queue").json()["groups"] if g["code"] == "FNC-IS00400"]
+    assert [g["oggetto"] for g in left] == ["Vasca V1"]  # chiuso solo il gruppo, non l'altro allarme del sito
 
 
 def test_manovra_requires_note_and_uses_type_2(client):

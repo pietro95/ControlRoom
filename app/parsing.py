@@ -1,4 +1,5 @@
-"""Parsing dei titoli dei ticket automatici: 'ALERT ON: FNC-IS00600-Casaleno'."""
+"""Parsing dei ticket automatici: titolo 'ALERT ON: FNC-IS00600-Casaleno' e corpo (tipo, oggetto, descrizione)."""
+import html
 import re
 from dataclasses import dataclass
 
@@ -27,3 +28,52 @@ def parse_alert_title(title: str) -> Site | None:
 def clean(s: str) -> str:
     """Toglie caratteri di controllo e spazi in eccesso (input operatore)."""
     return re.sub(r"\s+", " ", re.sub(r"[\x00-\x1f\x7f]", " ", s or "")).strip()
+
+
+# ---- corpo del ticket automatico: tipo, oggetto, descrizione ----
+# Il corpo arriva da GLPI come HTML (spesso con entità codificate due volte). Si cercano righe "Chiave: valore";
+# le chiavi riconosciute sono sinonimi frequenti nelle mail di telecontrollo. Nessuna chiave → descrizione =
+# prima riga significativa del testo.
+_KEYS = {
+    "tipo": ("tipo allarme", "tipo evento", "tipo", "tipologia", "categoria", "classe", "allarme", "evento",
+             "alarm type", "type"),
+    "oggetto": ("oggetto", "apparato", "apparecchiatura", "dispositivo", "componente", "elemento", "punto",
+                "variabile", "tag", "segnale", "item", "host", "object", "device"),
+    "descrizione": ("descrizione", "descrizione allarme", "messaggio", "testo", "dettaglio", "problema",
+                    "trigger", "description", "message"),
+}
+_KEY_OF = {syn: field for field, syns in _KEYS.items() for syn in syns}
+_LINE = re.compile(r"^\s*([A-Za-zÀ-ÿ ]{2,30}?)\s*[:=]\s*(.+?)\s*$")
+_TAG = re.compile(r"<\s*(br|/p|/div|/li|/tr|p|div|li|tr)\b[^>]*>", re.I)
+
+
+@dataclass(frozen=True)
+class AlarmInfo:
+    tipo: str
+    oggetto: str
+    descrizione: str
+
+
+def body_text(content: str) -> list[str]:
+    """HTML GLPI -> righe di testo pulite."""
+    s = content or ""
+    for _ in range(2):  # GLPI 9.x/10 salva il contenuto con entità HTML, a volte doppie
+        s = html.unescape(s)
+    s = _TAG.sub("\n", s)
+    s = re.sub(r"<[^>]+>", " ", s)
+    lines = (clean(x) for x in s.replace("\r", "\n").split("\n"))
+    return [x for x in lines if x]
+
+
+def parse_alert_body(content: str) -> AlarmInfo:
+    found: dict[str, str] = {}
+    free: list[str] = []
+    for line in body_text(content):
+        m = _LINE.match(line)
+        field = _KEY_OF.get(m.group(1).strip().lower()) if m else None
+        if field:
+            found.setdefault(field, m.group(2)[:300])
+        elif not line.upper().startswith(("ALERT ON", "ALERT OFF")):
+            free.append(line)
+    descr = found.get("descrizione") or (free[0][:300] if free else "")
+    return AlarmInfo(found.get("tipo", ""), found.get("oggetto", ""), descr)

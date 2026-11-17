@@ -2,10 +2,14 @@
 
 Interfaccia a pulsanti sopra GLPI 11 (REST API legacy). Due schermate:
 
-- **Allarmi**: ticket "ALERT ON" aperti dell'entità Control Room, raggruppati per sito (un'unica card per sito,
-  con contatore e marcatore "ripetuto"). Pulsanti **Rientrato** / **Manovra eseguita** (nota obbligatoria):
-  chiudono con una soluzione strutturata *tutti* i ticket aperti del sito. I titoli non riconosciuti non si
-  raggruppano mai (una card per ticket).
+- **Allarmi**: ticket "ALERT ON" aperti dell'entità Control Room in una **tabella** filtrabile (testo libero,
+  acquedotto, tipo, solo ripetuti) e ordinabile per colonna. Un gruppo = stesso **sito + tipo di allarme +
+  oggetto interessato**; se il corpo del ticket non indica né tipo né oggetto, discrimina la descrizione.
+  Tipo, oggetto e descrizione si leggono dal corpo del ticket (opz. 21) cercando righe `Chiave: valore`
+  (`Tipo allarme`/`Tipo`/`Allarme`…, `Oggetto`/`Apparato`/`Dispositivo`…, `Descrizione`/`Messaggio`…, vedi
+  `app/parsing.py:_KEYS`); in mancanza, descrizione = prima riga del testo. I gruppi con più ticket si espandono
+  (clic sulla riga) e mostrano i singoli ticket con link a GLPI. **Rientrato** / **Manovra** (nota obbligatoria)
+  chiudono l'intero gruppo o il singolo ticket. I titoli non riconosciuti non si raggruppano mai.
 - **Nuova chiamata**: ricerca sito → tipo (pulsanti) → chiamante → ticket con titolo `CHIAMATA: <codice> – <tipo>`,
   origine Telefono, posizione e urgenza valorizzate.
 

@@ -92,11 +92,13 @@ class GlpiClient:
             "criteria[2][link]": "AND", "criteria[2][field]": 1, "criteria[2][searchtype]": "contains",
             "criteria[2][value]": "ALERT ON",
             "forcedisplay[0]": 2, "forcedisplay[1]": 1, "forcedisplay[2]": 12, "forcedisplay[3]": 15,
+            "forcedisplay[4]": 21,  # descrizione (corpo) del ticket
             "sort": 15, "order": "DESC", "range": "0-999",
         }
         data = await self._request("GET", "/search/Ticket", params=params)
         return [
-            {"id": int(r["2"]), "title": r["1"], "status": r.get("12"), "opened": r.get("15")}
+            {"id": int(r["2"]), "title": r["1"], "status": r.get("12"), "opened": r.get("15"),
+             "content": r.get("21") or ""}
             for r in (data or {}).get("data", [])
         ]
 
