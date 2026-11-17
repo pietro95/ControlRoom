@@ -1,0 +1,251 @@
+"""App operatore Control Room: coda alert a pulsanti + nuova chiamata, su GLPI via API."""
+import html
+import logging
+import re
+import secrets
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import Depends, FastAPI, Form, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+from starlette.middleware.sessions import SessionMiddleware
+
+from . import store
+from .auth import AuthError, RateLimiter, authenticate
+from .config import settings
+from .glpi import GlpiClient, GlpiError
+from .parsing import clean, parse_alert_title
+
+log = logging.getLogger("controlroom")
+STATIC = Path(__file__).parent / "static"
+limiter = RateLimiter()
+
+# Tipi di chiamata dal campo: chiave -> (etichetta, urgenza GLPI 1-5)
+CALL_KINDS = {
+    "elettrico": ("Guasto elettrico", 3),
+    "idraulico": ("Guasto idraulico / perdita", 3),
+    "intrusione": ("Intrusione / sicurezza", 4),
+    "energia": ("Mancanza energia", 4),
+    "strumentale": ("Strumentazione / telecontrollo", 3),
+    "altro": ("Altro", 3),
+}
+OUTCOMES = {  # esito -> (id tipo soluzione, nota obbligatoria, testo)
+    "rientrato": ("sol_rientrato", False, "Allarme rientrato"),
+    "manovra": ("sol_manovra", True, "Manovra eseguita"),
+    "altro": ("sol_altro", True, "Altro"),
+}
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.glpi = GlpiClient()
+    yield
+    await app.state.glpi.aclose()
+
+
+def create_app() -> FastAPI:
+    secret = settings.session_secret
+    if not secret:
+        if not settings.dev_auth:
+            raise RuntimeError("SESSION_SECRET obbligatorio (openssl rand -hex 32)")
+        secret = secrets.token_hex(16)
+    app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    app.add_middleware(
+        SessionMiddleware, secret_key=secret, max_age=settings.session_hours * 3600,
+        same_site="strict", https_only=settings.cookie_secure and not settings.dev_auth,
+        session_cookie="cr_session",
+    )
+    app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+    # ---------- dipendenze ----------
+    def glpi_dep(request: Request) -> GlpiClient:
+        return request.app.state.glpi
+
+    def user_dep(request: Request) -> dict:
+        u = request.session.get("user")
+        if not u:
+            raise HTTPException(401, "non autenticato")
+        return u
+
+    def write_guard(request: Request):
+        # difesa CSRF aggiuntiva alla cookie SameSite=Strict: le scritture richiedono un header custom
+        if request.headers.get("x-cr") != "1":
+            raise HTTPException(403, "richiesta non valida")
+
+    # ---------- pagine ----------
+    @app.get("/healthz")
+    async def healthz():
+        return {"ok": True}
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        return Response(status_code=204)
+
+    def page(name: str, request: Request):
+        if not request.session.get("user"):
+            return RedirectResponse("/login", 303)
+        return FileResponse(STATIC / name, headers={"Cache-Control": "no-store"})
+
+    @app.get("/")
+    async def index(request: Request):
+        return page("index.html", request)
+
+    @app.get("/call")
+    async def call_page(request: Request):
+        return page("call.html", request)
+
+    def login_html(error: str = "") -> HTMLResponse:
+        tpl = (STATIC / "login.html").read_text(encoding="utf-8")
+        return HTMLResponse(tpl.replace("{{error}}", html.escape(error)), headers={"Cache-Control": "no-store"})
+
+    @app.get("/login")
+    async def login_form():
+        return login_html()
+
+    @app.post("/login")
+    async def login(request: Request, username: str = Form(...), password: str = Form(...)):
+        key = f"{request.client.host if request.client else '?'}|{username.lower()[:64]}"
+        if limiter.blocked(key):
+            return login_html("Troppi tentativi. Riprova tra qualche minuto.")
+        try:
+            u = authenticate(username, password)
+        except AuthError as e:
+            limiter.fail(key)
+            store.log(username[:64], "", "login_fail", {"reason": str(e)})
+            return login_html(f"Accesso negato: {e}")
+        limiter.reset(key)
+        request.session.clear()
+        request.session["user"] = {"username": u.username, "name": u.display_name}
+        store.log(u.username, u.display_name, "login", {})
+        return RedirectResponse("/", 303)
+
+    @app.post("/logout")
+    async def logout(request: Request):
+        request.session.clear()
+        return RedirectResponse("/login", 303)
+
+    # ---------- API ----------
+    @app.get("/api/me")
+    async def me(user: dict = Depends(user_dep)):
+        return {
+            "name": user["name"], "refresh": settings.refresh_seconds,
+            "glpi_url": settings.glpi_public_url,
+            "call_kinds": {k: v[0] for k, v in CALL_KINDS.items()},
+        }
+
+    async def build_queue(glpi: GlpiClient) -> list[dict]:
+        rows = await glpi.open_alerts()
+        groups: dict[str, dict] = {}
+        for r in rows:
+            s = parse_alert_title(r["title"])
+            key = s.code if s else f"#{r['id']}"  # titolo non riconosciuto: mai raggruppato, un ticket = una card
+            g = groups.setdefault(key, {
+                "code": key, "name": s.name if s else clean(r["title"])[:80],
+                "acquedotto": s.acquedotto if s else "—", "ids": [], "first": r["opened"], "last": r["opened"],
+            })
+            g["ids"].append(r["id"])
+            if r["opened"] and (not g["first"] or r["opened"] < g["first"]):
+                g["first"] = r["opened"]
+            if r["opened"] and (not g["last"] or r["opened"] > g["last"]):
+                g["last"] = r["opened"]
+        out = sorted(groups.values(), key=lambda g: g["last"] or "", reverse=True)
+        for g in out:
+            g["count"] = len(g["ids"])
+            g["flapping"] = g["count"] >= settings.flapping_threshold
+        return out
+
+    @app.get("/api/queue")
+    async def queue(user: dict = Depends(user_dep), glpi: GlpiClient = Depends(glpi_dep)):
+        try:
+            groups = await build_queue(glpi)
+        except GlpiError as e:
+            log.warning("queue: %s", e)
+            return JSONResponse({"ok": False, "error": "GLPI non raggiungibile"}, status_code=502)
+        return {"ok": True, "groups": groups, "total": sum(g["count"] for g in groups)}
+
+    class ResolveIn(BaseModel):
+        ticket_ids: list[int] = Field(min_length=1, max_length=200)
+        outcome: str
+        note: str = Field(default="", max_length=500)
+
+    @app.post("/api/resolve", dependencies=[Depends(write_guard)])
+    async def resolve(body: ResolveIn, user: dict = Depends(user_dep), glpi: GlpiClient = Depends(glpi_dep)):
+        if body.outcome not in OUTCOMES:
+            raise HTTPException(422, "esito non valido")
+        attr, note_required, label = OUTCOMES[body.outcome]
+        note = clean(body.note)
+        if note_required and len(note) < 3:
+            raise HTTPException(422, "nota obbligatoria per questo esito")
+        try:  # il token di servizio può chiudere SOLO ticket attualmente nella coda alert
+            allowed = {i for g in await build_queue(glpi) for i in g["ids"]}
+        except GlpiError:
+            raise HTTPException(502, "GLPI non raggiungibile")
+        ids = [i for i in dict.fromkeys(body.ticket_ids) if i in allowed]
+        skipped = [i for i in body.ticket_ids if i not in allowed]
+        content = label + (f": {note}" if note else ".") + f"\n[Control Room app — operatore: {user['name']} ({user['username']})]"
+        done, failed = [], []
+        for tid in ids:
+            try:
+                await glpi.add_solution(tid, getattr(settings, attr), content)
+                done.append(tid)
+            except GlpiError as e:
+                log.warning("resolve %s: %s", tid, e)
+                failed.append(tid)
+        store.log(user["username"], user["name"], "resolve",
+                  {"outcome": body.outcome, "note": note, "done": done, "failed": failed, "skipped": skipped})
+        return {"ok": not failed, "done": done, "failed": failed, "skipped": skipped}
+
+    @app.get("/api/sites")
+    async def sites(q: str = "", user: dict = Depends(user_dep), glpi: GlpiClient = Depends(glpi_dep)):
+        q = clean(q)[:60]
+        if len(q) < 2:
+            return {"sites": []}
+        try:
+            return {"sites": await glpi.search_locations(q)}
+        except GlpiError:
+            return JSONResponse({"sites": [], "error": "GLPI non raggiungibile"}, status_code=502)
+
+    class CallIn(BaseModel):
+        location_id: int | None = None
+        location_name: str = Field(default="", max_length=200)
+        kind: str
+        caller: str = Field(min_length=2, max_length=120)
+        phone: str = Field(default="", max_length=40)
+        note: str = Field(default="", max_length=1500)
+
+    @app.post("/api/call", dependencies=[Depends(write_guard)])
+    async def new_call(body: CallIn, user: dict = Depends(user_dep), glpi: GlpiClient = Depends(glpi_dep)):
+        if body.kind not in CALL_KINDS:
+            raise HTTPException(422, "tipo non valido")
+        label, urgency = CALL_KINDS[body.kind]
+        loc = clean(body.location_name)
+        if not body.location_id or not loc:
+            raise HTTPException(422, "sito obbligatorio")
+        m = re.search(r"[A-Z]{3}-[A-Z0-9]+", loc.upper())
+        site_tag = m.group(0) if m else loc[:50]
+        title = f"CHIAMATA: {site_tag} – {label}"
+        lines = [f"Sito: {loc}", f"Tipo: {label}", f"Chiamante: {clean(body.caller)}"]
+        if clean(body.phone):
+            lines.append(f"Recapito: {clean(body.phone)}")
+        if clean(body.note):
+            lines += ["", clean(body.note)]
+        lines += ["", f"[Control Room app — operatore: {user['name']} ({user['username']})]"]
+        try:
+            tid = await glpi.create_call(title, "\n".join(lines), body.location_id, urgency)
+        except GlpiError as e:
+            log.warning("create_call: %s", e)
+            store.log(user["username"], user["name"], "call_fail", {"title": title})
+            raise HTTPException(502, "GLPI non raggiungibile: ticket NON creato")
+        store.log(user["username"], user["name"], "call", {"ticket": tid, "title": title})
+        return {"ok": True, "ticket_id": tid, "title": title}
+
+    @app.get("/api/audit")
+    async def audit(user: dict = Depends(user_dep)):
+        return {"rows": store.recent(30)}
+
+    return app
+
+
+app = create_app() if (settings.session_secret or settings.dev_auth) else None

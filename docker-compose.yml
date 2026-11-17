@@ -1,0 +1,7 @@
+services:
+  controlroom:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports: ["127.0.0.1:8000:8000"]   # esporre solo tramite reverse proxy TLS
+    volumes: ["./data:/srv/data"]

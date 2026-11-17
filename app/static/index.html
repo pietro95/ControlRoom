@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Control Room – Allarmi</title><link rel="stylesheet" href="/static/style.css"></head>
+<body><main>
+<div class="banner" id="banner"></div>
+<div class="summary"><span><b id="total">–</b> allarmi aperti su <b id="sites">–</b> siti</span><span id="upd"></span></div>
+<div class="grid" id="grid"></div>
+</main>
+<script src="/static/app.js"></script>
+<script>
+let me, busy = false, openNote = null;
+
+function setBanner(on) {
+  const b = $("#banner");
+  if (!on) { b.style.display = "none"; return; }
+  b.replaceChildren("GLPI non raggiungibile: i dati mostrati potrebbero non essere aggiornati. Usa GLPI direttamente: ",
+    h("a", { href: me.glpi_url, target: "_blank", rel: "noopener" }, me.glpi_url));
+  b.style.display = "block";
+}
+
+async function resolve(g, outcome, note) {
+  busy = true;
+  try {
+    const r = await api("/api/resolve", { body: { ticket_ids: g.ids, outcome, note } });
+    toast(r.ok ? `${g.code}: chiusi ${r.done.length} ticket` : `${g.code}: ${r.failed.length} NON chiusi, riprova`);
+  } catch (e) { toast("Errore: " + e.message, 6000); }
+  busy = false; openNote = null; load();
+}
+
+function card(g) {
+  const noteBox = h("div", { class: "note" });
+  const inp = h("input", { placeholder: "Cosa è stato fatto? (obbligatorio)", maxlength: 500 });
+  const confirm = h("button", { class: "btn warn", onclick: () => {
+    if (inp.value.trim().length < 3) { toast("Scrivi cosa hai fatto"); inp.focus(); return; }
+    resolve(g, "manovra", inp.value);
+  } }, "Conferma manovra");
+  noteBox.append(inp, confirm);
+  if (openNote === g.code) { noteBox.style.display = "flex"; }
+  return h("div", { class: "card" + (g.flapping ? " flap" : "") },
+    h("div", { class: "top" }, h("div", {}, h("div", { class: "code" }, g.code), h("div", { class: "nm" }, g.name)),
+      h("span", { class: "badge" + (g.flapping ? " flap" : "") }, g.count + (g.count > 1 ? " alert" : " alert"))),
+    h("div", { class: "meta" }, `${g.acquedotto} · dalle ${fmtTime(g.first)}` + (g.count > 1 ? ` · ultimo ${fmtTime(g.last)}` : "") + (g.flapping ? " · ripetuto" : "")),
+    h("div", { class: "actions" },
+      h("button", { class: "btn ok", onclick: () => resolve(g, "rientrato", "") }, "Rientrato"),
+      h("button", { class: "btn warn", onclick: () => { openNote = g.code; noteBox.style.display = "flex"; inp.focus(); } }, "Manovra eseguita")),
+    noteBox);
+}
+
+async function load() {
+  if (busy || openNote) return; // non ridisegnare mentre l'operatore scrive
+  try {
+    const q = await api("/api/queue");
+    setBanner(false);
+    $("#total").textContent = q.total; $("#sites").textContent = q.groups.length;
+    $("#upd").textContent = "agg. " + new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const grid = $("#grid");
+    grid.replaceChildren(...(q.groups.length ? q.groups.map(card) : [h("div", { class: "empty" }, "Nessun allarme aperto")]));
+  } catch (e) {
+    if (e.status === 502) setBanner(true); else toast("Errore: " + e.message);
+  }
+}
+
+(async () => { me = await header("queue"); load(); setInterval(load, me.refresh * 1000); })();
+</script></body></html>

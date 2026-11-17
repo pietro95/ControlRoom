@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Control Room – Accesso</title><link rel="stylesheet" href="/static/style.css"></head>
+<body><form class="login" method="post" action="/login">
+<h1 style="margin-top:0">Control Room</h1>
+<div class="err">{{error}}</div>
+<div class="f"><label for="u">Utente (account Windows)</label><input id="u" name="username" autocomplete="username" autofocus required></div>
+<div class="f"><label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" required></div>
+<button class="btn" style="width:100%">Accedi</button>
+</form></body></html>
