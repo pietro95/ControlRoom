@@ -5,6 +5,9 @@
 #     SOLO dall'IP dell'app (GF_AUTH_PROXY_WHITELIST) e non ha accesso a Internet;
 #   - db_net: rete interna postgres <-> grafana <-> sync. L'app NON è su db_net:
 #     il portale operatore non dipende da Postgres né da Grafana (nessun depends_on).
+# nome fisso: reti e container non dipendono dalla cartella in cui si trova il repo (es. .../app)
+name: controlroom
+
 x-logging: &logging
   driver: json-file
   options: { max-size: "10m", max-file: "5" }
