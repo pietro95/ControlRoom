@@ -15,6 +15,13 @@ DS = {"type": "grafana-postgresql-datasource", "uid": "reporting"}
 ACQ = "coalesce(acquedotto, '—') IN ($acquedotto)"
 REP = "reparto IN ($reparto)"
 TF = "$__timeFilter(opened_at)"
+# Palette Siciliacque (come app/static/style.css), in tinte leggibili sia su tema chiaro sia su scuro:
+# i colori fissi delle dashboard non cambiano col tema.
+BLU = "#2b8fd6"     # serie principali (tra blu medio #005A94 e azzurro #5CBBFF)
+OK = "#2a9d5c"      # esito positivo / rientrato
+WARN = "#d08a1f"    # manovra, attenzione
+BAD = "#d64545"     # errore
+GRIGIO = "#8a9bb0"  # non classificato
 
 
 def target(sql: str, fmt: str = "table", ref: str = "A") -> dict:
@@ -32,6 +39,7 @@ def panel(kind: str, title: str, sql: str | list, x: int, y: int, w: int, h: int
         options.setdefault("colorMode", "none")
     if kind in ("timeseries", "barchart"):
         defaults.setdefault("min", 0)
+        defaults.setdefault("color", {"mode": "fixed", "fixedColor": BLU})
     return {"type": kind, "title": title, "description": desc, "datasource": DS,
             "gridPos": {"x": x, "y": y, "w": w, "h": h},
             "targets": [target(s, fmt, chr(65 + i)) for i, s in enumerate(sqls)],
@@ -50,7 +58,7 @@ def freshness(y: int = 0) -> list[dict]:
               desc="'GLPI' in produzione. Se compare SINTETICO i numeri sono generati da scripts/gen_synthetic.py.",
               options={"textMode": "value", "colorMode": "background", "graphMode": "none",
                        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/.*/"}},
-              field={"color": {"mode": "fixed", "fixedColor": "orange"}},
+              field={"color": {"mode": "fixed", "fixedColor": WARN}},
               overrides=[]),
         panel("stat", "Ultima sincronizzazione riuscita",
               # stat non visualizza campi timestamp: epoch in millisecondi + unità "tempo fa"
@@ -185,7 +193,7 @@ def sites() -> dict:
               options={"graphMode": "none", "colorMode": "background",
                        "reduceOptions": {"calcs": ["lastNotNull"], "fields": ""}},
               field={"min": 0, "max": 1, "thresholds": {"mode": "absolute", "steps": [
-                  {"color": "red", "value": None}, {"color": "orange", "value": 0.5}, {"color": "green", "value": 0.9}]}}),
+                  {"color": BAD, "value": None}, {"color": WARN, "value": 0.5}, {"color": OK, "value": 0.9}]}}),
     ]
     return dashboard("cr-sites", "Control Room – Siti, acquedotti, reparti", p, [VAR_ACQ, VAR_REP])
 
@@ -233,7 +241,7 @@ def times() -> dict:
 # ------------------------------------------------------------------ Esiti
 def outcomes() -> dict:
     p = freshness()
-    colors = [("Rientrato", "green"), ("Manovra", "blue"), ("Altro", "purple"), ("Non classificato", "#8e8e8e")]
+    colors = [("Rientrato", OK), ("Manovra", WARN), ("Altro", BLU), ("Non classificato", GRIGIO)]
     ov = [{"matcher": {"id": "byName", "options": n},
            "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": c}}]} for n, c in colors]
     p += [

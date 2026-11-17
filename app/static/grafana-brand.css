@@ -1,0 +1,28 @@
+/* Tema Siciliacque per Grafana: iniettato dal proxy del portale (app/grafana_proxy.py) nelle pagine HTML.
+ * Grafana 11 non espone variabili CSS del tema: si usano classi stabili (body.theme-dark/-light,
+ * .main-view, contenitori pannello "*-panel-container"). Verificato su Grafana OSS 11.4.0.
+ * Limite noto: i testi disegnati su canvas (assi dei grafici) restano nel font di Grafana. */
+@font-face{font-family:"Maven Pro";font-style:normal;font-weight:400;font-display:swap;src:url("/static/vendor/maven-pro-5.3.0/maven-pro-latin-400-normal.woff2") format("woff2")}
+@font-face{font-family:"Maven Pro";font-style:normal;font-weight:500;font-display:swap;src:url("/static/vendor/maven-pro-5.3.0/maven-pro-latin-500-normal.woff2") format("woff2")}
+@font-face{font-family:"Maven Pro";font-style:normal;font-weight:600;font-display:swap;src:url("/static/vendor/maven-pro-5.3.0/maven-pro-latin-600-normal.woff2") format("woff2")}
+@font-face{font-family:"Maven Pro";font-style:normal;font-weight:700;font-display:swap;src:url("/static/vendor/maven-pro-5.3.0/maven-pro-latin-700-normal.woff2") format("woff2")}
+
+body, body *:not(code):not(pre):not(kbd):not(samp) {
+  font-family: "Maven Pro", Inter, Helvetica, Arial, sans-serif !important;
+}
+
+/* Scuro: stessi blu del portale */
+body.theme-dark, body.theme-dark .main-view { background: #002640 !important; }
+body.theme-dark [class*="-panel-container"] { background: #00345a !important; border-color: #0b4a78 !important; }
+
+/* Chiaro: fondo e bordi del registro contratti */
+body.theme-light, body.theme-light .main-view { background: #f4f6f9 !important; }
+body.theme-light [class*="-panel-container"] { background: #ffffff !important; border-color: #dde3ea !important; }
+
+/* Titoli dei pannelli in blu istituzionale (chiaro) / bianco (scuro) */
+body.theme-light [data-testid="header-container"] h2 { color: #003f6b !important; font-weight: 600 !important; }
+body.theme-dark [data-testid="header-container"] h2 { color: #ffffff !important; font-weight: 600 !important; }
+
+/* Barra filtri/periodo sopra la dashboard (sticky, senza classe stabile): primo figlio del page-wrapper */
+body.theme-dark [class*="-page-wrapper"] > div:first-child > div:first-child { background: #002640 !important; }
+body.theme-light [class*="-page-wrapper"] > div:first-child > div:first-child { background: #f4f6f9 !important; }
