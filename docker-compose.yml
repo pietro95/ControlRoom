@@ -15,12 +15,14 @@ x-logging: &logging
 services:
   app:
     build: .
-    image: controlroom:local
+    image: controlroom:${APP_VERSION:-local}   # deploy.sh: tag della versione installata
     restart: unless-stopped
-    env_file: .env
+    env_file: ${CR_ENV_FILE:-.env}           # deploy.sh: <CR_BASE>/config/.env
     environment:
       GRAFANA_URL: http://172.30.99.11:3000
-    ports: ["127.0.0.1:8000:8000"]
+    # Solo tramite reverse proxy TLS. Server condiviso: porta non standard e indirizzo raggiungibile dal
+    # proxy (Nginx Proxy Manager in container: gateway del bridge, es. 172.17.0.1), dal .env.
+    ports: ["${APP_BIND:-127.0.0.1}:${APP_PORT:-8000}:8000"]
     volumes: ["appdata:/srv/data"]   # volume nominato: eredita il proprietario (uid 10001) dall'immagine
     networks:
       default: {}
@@ -36,10 +38,10 @@ services:
   # worker GLPI -> Postgres: stessa immagine dell'app, comando diverso. Legge l'audit dell'app in sola lettura.
   sync:
     build: .
-    image: controlroom:local
+    image: controlroom:${APP_VERSION:-local}   # deploy.sh: tag della versione installata
     command: ["python", "-m", "sync.worker"]
     restart: unless-stopped
-    env_file: .env
+    env_file: ${CR_ENV_FILE:-.env}           # deploy.sh: <CR_BASE>/config/.env
     environment:
       DATABASE_URL: postgresql://cr_sync:${SYNC_DB_PASSWORD}@postgres:5432/controlroom
       AUDIT_DB_PATH: /srv/appdata/audit.db
