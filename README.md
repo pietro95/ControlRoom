@@ -10,7 +10,7 @@ Interfaccia a pulsanti sopra GLPI 11 (REST API legacy). Due schermate:
   `app/parsing.py:_KEYS`); in mancanza, descrizione = prima riga del testo. I gruppi con più ticket si espandono
   (clic sulla riga) e mostrano i singoli ticket con link a GLPI. **Rientrato** / **Manovra** (nota obbligatoria)
   chiudono l'intero gruppo o il singolo ticket. I titoli non riconosciuti non si raggruppano mai.
-  **Manovra senza chiusura**: dal pannello Manovra, *Salva senza chiudere* aggiunge un followup GLPI (storico) e lascia
+  **Manovra senza chiusura** (dopo la presa in carico, che resta invariata): dal pannello Manovra, *Salva senza chiudere* aggiunge un followup GLPI (storico) e lascia
   il ticket in coda; *Salva e metti in attesa* porta il ticket allo stato GLPI "In attesa" (`GLPI_STATUS_WAITING`, 4),
   *Salva e riprendi* lo riporta a `GLPI_STATUS_RESUME` (2). Il pannello mostra lo storico manovre (followup) dei ticket;
   la coda evidenzia i ticket in attesa (filtro *Solo attivi* / *Solo in attesa*). I ticket in attesa restano chiudibili.

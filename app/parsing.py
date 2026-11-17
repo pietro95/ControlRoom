@@ -77,3 +77,37 @@ def parse_alert_body(content: str) -> AlarmInfo:
             free.append(line)
     descr = found.get("descrizione") or (free[0][:300] if free else "")
     return AlarmInfo(found.get("tipo", ""), found.get("oggetto", ""), descr)
+
+
+# ---- chiamate dal campo create dall'app: titolo 'CHIAMATA: BLF-PO00100 – nota', corpo con Sito/Chiamante ----
+_CALL_TITLE = re.compile(r"^\s*CHIAMATA\s*:\s*(.*?)\s*$", re.I)
+_SITE_CODE = re.compile(r"\b([A-Z]{3})-([A-Z0-9]+)\b")
+
+
+@dataclass(frozen=True)
+class CallInfo:
+    code: str  # codice sito se riconoscibile, altrimenti ""
+    acquedotto: str
+    sito: str  # nome completo della posizione (riga "Sito:")
+    chiamante: str
+    descrizione: str
+
+
+def parse_call(title: str, content: str) -> CallInfo | None:
+    m = _CALL_TITLE.match(title or "")
+    if not m:
+        return None
+    sito = chiamante = ""
+    free: list[str] = []
+    for line in body_text(content):
+        low = line.lower()
+        if low.startswith("sito:") and not sito:
+            sito = line[5:].strip()
+        elif low.startswith("chiamante:") and not chiamante:
+            chiamante = line[10:].strip()
+        elif not low.startswith("[control room app"):
+            free.append(line)
+    c = _SITE_CODE.search(m.group(1).upper()) or _SITE_CODE.search(sito.upper())
+    code = f"{c.group(1)}-{c.group(2)}" if c else ""
+    descr = " · ".join(free)[:300] or m.group(1).split("–", 1)[-1].strip()
+    return CallInfo(code, code[:3] if code else "—", sito, chiamante, descr)

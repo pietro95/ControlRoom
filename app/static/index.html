@@ -54,7 +54,8 @@ async function progress(target, text, wait) {
   try {
     const r = await api("/api/progress", { body: { ticket_ids: target.ids, note: text, wait } });
     const what = wait === "set" ? "messi in attesa" : wait === "resume" ? "ripresi" : "aggiornati";
-    toast(r.ok ? `${target.label}: ${r.done.length} ticket ${what} (restano aperti)` : `${target.label}: ${r.failed.length} NON aggiornati, riprova`);
+    toast(r.ok ? `${target.label}: ${r.done.length} ticket ${what} (restano aperti)`
+      : `${target.label}: ${r.failed.length} NON aggiornati — ${r.error || "riprova"}`, r.ok ? 3500 : 8000);
   } catch (e) { toast("Errore: " + e.message, 6000); }
   busy = false; note = null; load();
 }
@@ -81,12 +82,28 @@ async function resolve(target, outcome, text) {
   busy = true;
   try {
     const r = await api("/api/resolve", { body: { ticket_ids: target.ids, outcome, note: text } });
-    toast(r.ok ? `${target.label}: chiusi ${r.done.length} ticket` : `${target.label}: ${r.failed.length} NON chiusi, riprova`);
+    toast(r.ok ? `${target.label}: chiusi ${r.done.length} ticket`
+      : `${target.label}: ${r.failed.length} NON chiusi — ${r.error || "riprova"}`, r.ok ? 3500 : 8000);
   } catch (e) { toast("Errore: " + e.message, 6000); }
   busy = false; note = null; load();
 }
 
+async function take(target) {
+  busy = true;
+  try {
+    const r = await api("/api/take", { body: { ticket_ids: target.ids } });
+    toast(r.ok ? `${target.label}: preso in carico` : `${target.label}: presa in carico NON riuscita — ${r.error || "riprova"}`,
+      r.ok ? 3500 : 8000);
+  } catch (e) { toast("Errore: " + e.message, 6000); }
+  busy = false; load();
+}
+
 function actions(target) {
+  if (!target.taken) return h("div", { class: "actions" },
+    h("button", { class: "btn sm", onclick: (ev) => { ev.stopPropagation(); take(target); } }, "Prendi in carico"));
+  if (target.call) return h("div", { class: "actions" },
+    h("button", { class: "btn sm warn", onclick: (ev) => { ev.stopPropagation(); note = target; loadHistory(target); render(); } },
+      target.waiting ? "Aggiorna / storico…" : "Aggiorna / chiudi…"));
   return h("div", { class: "actions" },
     h("button", { class: "btn sm ok", onclick: (ev) => { ev.stopPropagation(); resolve(target, "rientrato", ""); } }, "Rientrato"),
     h("button", { class: "btn sm warn", onclick: (ev) => { ev.stopPropagation(); note = target; loadHistory(target); render(); } },
@@ -100,7 +117,7 @@ function noteRow(target) {
     if (inp.value.trim().length >= 3) return true;
     toast("Scrivi cosa hai fatto"); inp.focus(); return false;
   };
-  const close = () => valid() && resolve(target, "manovra", inp.value);
+  const close = () => valid() && resolve(target, target.call ? "altro" : "manovra", inp.value);
   const keep = (wait) => valid() && progress(target, inp.value, wait);
   if (!target.bound) {
     target.bound = true;
@@ -110,8 +127,8 @@ function noteRow(target) {
   return h("tr", { class: "noterow" }, h("td", { colspan: COLS.length },
     historyBox(target),
     h("div", { class: "note open" }, inp,
-      h("button", { class: "btn sm warn", onclick: close, title: "Registra la manovra e chiude il ticket" }, "Manovra e chiudi"),
-      h("button", { class: "btn sm", onclick: () => keep("keep"), title: "Registra la manovra nello storico, il ticket resta aperto" }, "Salva senza chiudere"),
+      h("button", { class: "btn sm warn", onclick: close, title: "Registra e chiude il ticket" }, target.call ? "Chiudi ticket" : "Manovra e chiudi"),
+      h("button", { class: "btn sm", onclick: () => keep("keep"), title: "Registra nello storico, il ticket resta aperto" }, "Salva senza chiudere"),
       target.waiting
         ? h("button", { class: "btn sm", onclick: () => keep("resume"), title: "Registra e toglie il ticket dall'attesa" }, "Salva e riprendi")
         : h("button", { class: "btn sm", onclick: () => keep("set"), title: "Registra e mette il ticket In attesa (es. squadra in arrivo, ricambio)" }, "Salva e metti in attesa"),
@@ -169,7 +186,8 @@ function render() {
   for (const g of vis) {
     const open = expanded.has(g.key), multi = g.count > 1;
     const toggle = () => { open ? expanded.delete(g.key) : expanded.add(g.key); render(); };
-    const target = note && note.key === g.key ? note : { key: g.key, ids: g.ids, label: label(g), waiting: g.waiting };
+    const target = note && note.key === g.key ? note
+      : { key: g.key, ids: g.ids, label: label(g), call: g.kind === "call", taken: g.taken, waiting: g.waiting };
     rows.push(h("tr", { class: "grp" + (g.flapping ? " flap" : "") + (multi ? " multi" : "") + (g.waiting ? " waiting" : ""), onclick: multi ? toggle : null },
       h("td", { class: "tog" }, multi ? (open ? "▾" : "▸") : ""),
       h("td", { class: "nowrap" }, fmtWhen(g.last)),
@@ -177,15 +195,16 @@ function render() {
       h("td", {}, g.acquedotto),
       h("td", {}, h("div", { class: "code" }, g.code), h("div", { class: "nm" }, g.name)),
       h("td", {}, g.oggetto || h("span", { class: "mut" }, "—")),
-      h("td", {}, g.tipo || h("span", { class: "mut" }, "—")),
+      h("td", {}, g.kind === "call" ? h("span", { class: "badge call" }, "Chiamata") : (g.tipo || h("span", { class: "mut" }, "—"))),
       h("td", { class: "descr" }, g.waiting_count ? h("span", { class: "badge wait" }, g.waiting ? "In attesa" : `${g.waiting_count} in attesa`) : "",
         g.waiting_count ? " " : "", g.descrizione || h("span", { class: "mut" }, "(nessuna descrizione nel ticket)")),
       h("td", {}, h("span", { class: "badge" + (g.flapping ? " flap" : "") }, String(g.count))),
-      h("td", {}, actions(target))));
+      h("td", {}, actions(target), g.tech && g.tech.length ? h("div", { class: "mut tech" }, "in carico: " + g.tech.join(", ")) : "")));
     if (note && note.key === g.key) rows.push(noteRow(note));
     if (open && multi) for (const it of g.items) {
       const k1 = "#" + it.id;
-      const t1 = note && note.key === k1 ? note : { key: k1, ids: [it.id], label: `${g.code} #${it.id}`, waiting: it.waiting };
+      const t1 = note && note.key === k1 ? note
+        : { key: k1, ids: [it.id], label: `${g.code} #${it.id}`, call: g.kind === "call", taken: it.taken, waiting: it.waiting };
       rows.push(h("tr", { class: "item" + (it.waiting ? " waiting" : "") },
         h("td", {}), h("td", { class: "nowrap" }, fmtWhen(it.opened)),
         h("td", { colspan: 5 }, h("a", { href: `${me.glpi_url}/front/ticket.form.php?id=${it.id}`, target: "_blank", rel: "noopener" }, "#" + it.id)),

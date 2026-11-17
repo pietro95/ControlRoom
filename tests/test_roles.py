@@ -75,6 +75,7 @@ def test_both_roles_get_both_views(client):
     assert client.get("/", follow_redirects=False).status_code == 200
     assert client.get("/stats", follow_redirects=False).status_code == 200
     assert client.get("/grafana/").status_code == 200
+    mock_glpi.STATE["tickets"][100]["status"] = 2  # già preso in carico
     assert client.post("/api/resolve", json=WRITES[0][1], headers=H).status_code == 200
 
 

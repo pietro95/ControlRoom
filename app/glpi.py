@@ -4,6 +4,7 @@ Usa un account di servizio con profilo limitato all'entità Control Room.
 L'autore reale (operatore AD) viene scritto nel testo e nell'audit locale.
 """
 import asyncio
+import re
 import logging
 from typing import Any
 
@@ -12,6 +13,21 @@ import httpx
 from .config import settings
 
 log = logging.getLogger("glpi")
+
+
+def _int(v) -> int | None:
+    try:
+        return int(str(v).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _names(v) -> list[str]:
+    """Campo multivalore della ricerca GLPI ('a$#$b' o 'a$$##$$b') -> lista di valori non vuoti."""
+    if not v:
+        return []
+    parts = re.split(r"\$\$##\$\$|\$#\$", str(v))
+    return [p.strip() for p in parts if p.strip() and p.strip() not in ("0", "null")]
 
 
 class GlpiError(Exception):
@@ -83,24 +99,34 @@ class GlpiClient:
         data = await self._request("GET", f"/search/{itemtype}", params=params) or {}
         return data.get("data", []) or [], int(data.get("totalcount", 0) or 0)
 
-    async def open_alerts(self) -> list[dict]:
-        """Ticket 'ALERT ON' non risolti dell'entità Control Room."""
+    async def _open_by_title(self, text: str) -> list[dict]:
+        """Ticket non risolti dell'entità Control Room il cui titolo contiene `text`."""
         params = {
             "criteria[0][field]": 80, "criteria[0][searchtype]": "equals", "criteria[0][value]": settings.entity_id,
             "criteria[1][link]": "AND", "criteria[1][field]": 12, "criteria[1][searchtype]": "equals",
             "criteria[1][value]": "notold",
             "criteria[2][link]": "AND", "criteria[2][field]": 1, "criteria[2][searchtype]": "contains",
-            "criteria[2][value]": "ALERT ON",
+            "criteria[2][value]": text,
             "forcedisplay[0]": 2, "forcedisplay[1]": 1, "forcedisplay[2]": 12, "forcedisplay[3]": 15,
             "forcedisplay[4]": 21,  # descrizione (corpo) del ticket
+            "forcedisplay[5]": 5,  # tecnico assegnato (presa in carico)
             "sort": 15, "order": "DESC", "range": "0-999",
         }
         data = await self._request("GET", "/search/Ticket", params=params)
         return [
-            {"id": int(r["2"]), "title": r["1"], "status": r.get("12"), "opened": r.get("15"),
-             "content": r.get("21") or ""}
+            {"id": int(r["2"]), "title": r["1"], "status": _int(r.get("12")), "opened": r.get("15"),
+             "content": r.get("21") or "", "tech": _names(r.get("5"))}
             for r in (data or {}).get("data", [])
         ]
+
+    async def open_alerts(self) -> list[dict]:
+        """Ticket 'ALERT ON' non risolti dell'entità Control Room."""
+        return await self._open_by_title("ALERT ON")
+
+    async def open_calls(self) -> list[dict]:
+        """Chiamate dal campo ('CHIAMATA:') non risolte dell'entità Control Room."""
+        return [r for r in await self._open_by_title("CHIAMATA")
+                if re.match(r"^\s*CHIAMATA\s*:", r["title"] or "", re.I)]
 
     async def search_locations(self, text: str = "", limit: int = 50) -> list[dict]:
         """Posizioni GLPI (nome completo, campo 1); testo vuoto = prime `limit` in ordine alfabetico."""
@@ -143,6 +169,25 @@ class GlpiClient:
             return None
         return {"id": int(u["id"]), "name": self._user_label(u.get("firstname"), u.get("realname"), u.get("name"))}
 
+    async def find_user_by_login(self, login: str) -> int | None:
+        """ID dell'utente GLPI attivo con quel login (AD), None se assente."""
+        # "equals" sul campo 1 (itemlink) in GLPI confronta l'ID, non il login: si usa "contains" ancorato
+        # (^...$) e si verifica comunque l'uguaglianza esatta qui sotto.
+        params = {"criteria[0][field]": 1, "criteria[0][searchtype]": "contains", "criteria[0][value]": f"^{login}$",
+                  "forcedisplay[0]": 2, "forcedisplay[1]": 1, "forcedisplay[2]": 8, "range": "0-9"}
+        data = await self._request("GET", "/search/User", params=params)
+        for r in (data or {}).get("data", []):
+            if str(r.get("1", "")).lower() == login.lower() and str(r.get("8", 1)) not in ("0", "No", "False"):
+                return int(r["2"])
+        return None
+
+    # ---- scrittura ----
+    async def take_ticket(self, ticket_id: int, user_id: int) -> None:
+        """Presa in carico: operatore come tecnico assegnato (type 2) e stato 'In corso (assegnato)'."""
+        await self._request("POST", f"/Ticket/{ticket_id}/Ticket_User",
+                            json={"input": {"tickets_id": ticket_id, "users_id": user_id, "type": 2}})
+        await self._request("PUT", f"/Ticket/{ticket_id}", json={"input": {"id": ticket_id, "status": 2}})
+
     async def followups(self, ticket_id: int) -> list[dict]:
         """Storico avanzamenti (ITILFollowup) di un ticket, dal più vecchio."""
         data = await self._request("GET", f"/Ticket/{int(ticket_id)}/ITILFollowup", params={"range": "0-199"}) or []
@@ -150,7 +195,6 @@ class GlpiClient:
                 "content": f.get("content") or ""} for f in data if isinstance(f, dict)]
         return sorted(out, key=lambda f: (f["date"] or "", f["id"]))
 
-    # ---- scrittura ----
     async def add_followup(self, ticket_id: int, content: str) -> None:
         await self._request(
             "POST", "/ITILFollowup",

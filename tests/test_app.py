@@ -87,6 +87,13 @@ def test_resolve_rientrato_closes_whole_group(client):
     mock_glpi.add_ticket("ALERT ON: FNC-IS00400-Campanella", "2026-11-17 09:10:00",
                          content="Tipo allarme: Livello\nOggetto: Vasca V1")
     ids = next(g["ids"] for g in client.get("/api/queue").json()["groups"] if g["oggetto"] == "Pompa P2")
+    r = client.post("/api/resolve", json={"ticket_ids": ids, "outcome": "rientrato"}, headers=H)
+    assert r.status_code == 409 and "in carico" in r.json()["detail"]  # prima la presa in carico
+    t = client.post("/api/take", json={"ticket_ids": ids}, headers=H).json()
+    assert t["ok"] and sorted(t["done"]) == sorted(ids)
+    g = next(g for g in client.get("/api/queue").json()["groups"] if g["oggetto"] == "Pompa P2")
+    assert g["taken"] and g["tech"] == ["mrossi"]
+    assert all(mock_glpi.STATE["tickets"][i]["status"] == 2 for i in ids)
     r = client.post("/api/resolve", json={"ticket_ids": ids, "outcome": "rientrato"}, headers=H).json()
     assert r["ok"] and sorted(r["done"]) == sorted(ids)
     st = client.get("/_noop").status_code if False else mock_glpi.STATE
@@ -101,6 +108,7 @@ def test_resolve_rientrato_closes_whole_group(client):
 def test_manovra_requires_note_and_uses_type_2(client):
     login(client)
     tid = next(g["ids"] for g in client.get("/api/queue").json()["groups"] if g["code"] == "MOE-PA00500")
+    client.post("/api/take", json={"ticket_ids": tid}, headers=H)
     assert client.post("/api/resolve", json={"ticket_ids": tid, "outcome": "manovra", "note": " "}, headers=H).status_code == 422
     r = client.post("/api/resolve", json={"ticket_ids": tid, "outcome": "manovra", "note": "Riarmato interruttore Q3"}, headers=H).json()
     assert r["ok"]
@@ -129,7 +137,7 @@ def test_new_call(client):
     users = client.get("/api/users?q=bianc").json()["users"]
     assert users == [{"id": 7, "name": "Bianchi Mario (mbianchi)"}]
     assert client.get("/api/users?q=neri").json()["users"] == []  # disattivato
-    assert len(client.get("/api/users").json()["users"]) == 2  # tendina aperta senza testo: tutti gli attivi
+    assert len(client.get("/api/users").json()["users"]) == 3  # tendina aperta senza testo: tutti gli attivi
     assert len(client.get("/api/sites").json()["sites"]) == 3
     body = {"location_id": sites[0]["id"], "location_name": sites[0]["name"], "caller_id": 7,
             "note": "Porta forzata\nlucchetto rotto"}
@@ -145,6 +153,32 @@ def test_new_call(client):
     assert client.post("/api/call", json={**body, "caller_id": 9}, headers=H).status_code == 422
     assert client.post("/api/call", json={**body, "caller_id": 999}, headers=H).status_code == 422
     assert client.post("/api/call", json={**body, "note": "  "}, headers=H).status_code == 422
+
+
+def test_open_calls_in_queue_and_closable(client):
+    login(client)
+    site = client.get("/api/sites?q=casaleno").json()["sites"][0]
+    body = {"location_id": site["id"], "location_name": site["name"], "caller_id": 7, "note": "Porta forzata"}
+    tid = client.post("/api/call", json=body, headers=H).json()["ticket_id"]
+    q = client.get("/api/queue").json()
+    calls = [g for g in q["groups"] if g.get("kind") == "call"]
+    assert [g["ids"] for g in calls] == [[tid]]
+    c = calls[0]
+    assert c["code"] == "FNC-IS00600" and c["acquedotto"] == "FNC" and c["tipo"] == "Chiamata"
+    assert "Porta forzata" in c["descrizione"] and "Bianchi Mario" in c["descrizione"]
+    assert "Control Room app" not in c["descrizione"]
+    assert client.post("/api/take", json={"ticket_ids": [tid]}, headers=H).json()["done"] == [tid]
+    r = client.post("/api/resolve", json={"ticket_ids": [tid], "outcome": "altro", "note": "Verificato sul posto"},
+                    headers=H).json()
+    assert r["done"] == [tid]
+    assert not any(g.get("kind") == "call" for g in client.get("/api/queue").json()["groups"])
+
+
+def test_parse_call_without_site_code():
+    from app.parsing import parse_call
+    c = parse_call("CHIAMATA: Potabilizzatori – perdita", "Sito: Potabilizzatori\nChiamante: X (x)\n\nperdita")
+    assert c.code == "" and c.acquedotto == "—" and c.sito == "Potabilizzatori" and c.descrizione == "perdita"
+    assert parse_call("ALERT ON: ANC-PO00100 x", "") is None
 
 
 def test_glpi_session_expiry_recovers(client):
@@ -167,9 +201,29 @@ def test_glpi_down_gives_502_not_crash(client):
     assert client.post("/api/call", json=body, headers=H).status_code == 502
 
 
+def test_glpi_refusal_reason_shown_to_operator(client):
+    login(client)
+    tid = next(g["ids"][0] for g in client.get("/api/queue").json()["groups"] if g["code"] == "MOE-PA00500")
+    mock_glpi.STATE["tickets"][tid]["tech"] = "mrossi"  # assegnato ma ancora "Nuovo": GLPI rifiuta
+    r = client.post("/api/resolve", json={"ticket_ids": [tid], "outcome": "rientrato"}, headers=H).json()
+    assert not r["ok"] and r["failed"] == [tid] and "diritti sufficienti" in r["error"]
+
+
+def test_take_requires_operator_in_glpi(client, monkeypatch):
+    login(client)
+    monkeypatch.setattr(mock_glpi, "USERS", [u for u in mock_glpi.USERS if u[1] != "mrossi"])
+    tid = next(g["ids"] for g in client.get("/api/queue").json()["groups"] if g["code"] == "MOE-PA00500")
+    r = client.post("/api/take", json={"ticket_ids": tid}, headers=H)
+    assert r.status_code == 422 and "mrossi" in r.json()["detail"]
+
+
 def test_progress_keeps_ticket_open_with_history_and_wait(client):
     login(client)
     ids = next(g["ids"] for g in client.get("/api/queue").json()["groups"] if g["oggetto"] == "Pompa P2")
+    r = client.post("/api/progress", json={"ticket_ids": ids, "note": "Avviata P1"}, headers=H)
+    assert r.status_code == 409 and "in carico" in r.json()["detail"]  # prima chi (presa in carico), poi cosa
+    assert not mock_glpi.STATE["followups"]
+    assert client.post("/api/take", json={"ticket_ids": ids}, headers=H).json()["ok"]
     assert client.post("/api/progress", json={"ticket_ids": ids, "note": " "}, headers=H).status_code == 422
     assert client.post("/api/progress", json={"ticket_ids": ids, "note": "x x", "wait": "boh"}, headers=H).status_code == 422
     r = client.post("/api/progress", json={"ticket_ids": ids, "note": "Avviata P1 di riserva", "wait": "set"},
@@ -178,6 +232,7 @@ def test_progress_keeps_ticket_open_with_history_and_wait(client):
     st = mock_glpi.STATE
     assert all(st["tickets"][i]["status"] == 4 for i in ids) and not st["solutions"]
     g = next(g for g in client.get("/api/queue").json()["groups"] if g["oggetto"] == "Pompa P2")
+    assert g["taken"] and g["tech"] == ["mrossi"]  # l'attesa non toglie la presa in carico
     assert g["waiting"] and g["waiting_count"] == 3 and all(i["waiting"] for i in g["items"])  # resta in coda
     client.post("/api/progress", json={"ticket_ids": ids[:1], "note": "Squadra sul posto", "wait": "resume"}, headers=H)
     assert st["tickets"][ids[0]]["status"] == 2
