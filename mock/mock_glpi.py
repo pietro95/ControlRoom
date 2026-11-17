@@ -171,7 +171,10 @@ async def search_user(request: Request, app_token: str = Header(""), session_tok
     q = request.query_params
     text = q.get("criteria[0][value]", "").lower()
     if q.get("criteria[0][searchtype]") == "equals" and q.get("criteria[0][field]") == "1":
-        data = [{"2": i, "1": lo, "8": act} for i, lo, ln, fn, act in USERS if lo.lower() == text]
+        # come GLPI: "equals" su un campo itemlink confronta l'ID dell'utente, non il login
+        data = [{"2": i, "1": lo, "8": act} for i, lo, ln, fn, act in USERS if str(i) == text]
+    elif text.startswith("^") and text.endswith("$"):  # contains ancorato = uguaglianza (case-insensitive)
+        data = [{"2": i, "1": lo, "8": act} for i, lo, ln, fn, act in USERS if lo.lower() == text[1:-1]]
     else:
         data = [{"2": i, "1": lo, "34": ln, "9": fn, "8": act} for i, lo, ln, fn, act in USERS
                 if any(text in x.lower() for x in (lo, ln, fn))]

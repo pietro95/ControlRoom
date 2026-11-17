@@ -171,7 +171,9 @@ class GlpiClient:
 
     async def find_user_by_login(self, login: str) -> int | None:
         """ID dell'utente GLPI attivo con quel login (AD), None se assente."""
-        params = {"criteria[0][field]": 1, "criteria[0][searchtype]": "equals", "criteria[0][value]": login,
+        # "equals" sul campo 1 (itemlink) in GLPI confronta l'ID, non il login: si usa "contains" ancorato
+        # (^...$) e si verifica comunque l'uguaglianza esatta qui sotto.
+        params = {"criteria[0][field]": 1, "criteria[0][searchtype]": "contains", "criteria[0][value]": f"^{login}$",
                   "forcedisplay[0]": 2, "forcedisplay[1]": 1, "forcedisplay[2]": 8, "range": "0-9"}
         data = await self._request("GET", "/search/User", params=params)
         for r in (data or {}).get("data", []):
