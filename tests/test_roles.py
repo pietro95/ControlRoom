@@ -7,7 +7,8 @@ from app import auth
 from app.config import settings
 from app.glpi import GlpiClient
 from app.main import create_app, limiter
-from mock import mock_glpi
+from mock import mock_glpi, mock_grafana
+from app.grafana_proxy import GrafanaProxy
 
 H = {"X-CR": "1"}
 OP_DN = "CN=ControlRoom-Operatori,OU=Gruppi,DC=siciliacque,DC=local"
@@ -26,6 +27,7 @@ def client(monkeypatch):
     app = create_app()
     with TestClient(app) as c:
         app.state.glpi = GlpiClient(transport=httpx.ASGITransport(app=mock_glpi.app))
+        app.state.grafana = GrafanaProxy(transport=httpx.ASGITransport(app=mock_grafana.app))
         yield c
 
 
@@ -47,7 +49,7 @@ def test_manager_gets_403_on_writes(client, path, body):
 def test_manager_views(client):
     login(client, "capo")
     assert client.get("/stats").status_code == 200
-    assert client.get("/grafana/d/x").status_code == 503  # ruolo ok, proxy non ancora presente (PR 2)
+    assert client.get("/grafana/d/x").status_code == 200
     assert client.get("/api/me").json()["roles"] == ["manager"]
     assert client.get("/api/queue").status_code == 403
     assert client.get("/api/sites?q=casa").status_code == 403
@@ -72,7 +74,7 @@ def test_both_roles_get_both_views(client):
     assert client.get("/api/me").json()["roles"] == ["operator", "manager"]
     assert client.get("/", follow_redirects=False).status_code == 200
     assert client.get("/stats", follow_redirects=False).status_code == 200
-    assert client.get("/grafana/").status_code == 503
+    assert client.get("/grafana/").status_code == 200
     assert client.post("/api/resolve", json=WRITES[0][1], headers=H).status_code == 200
 
 

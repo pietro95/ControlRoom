@@ -16,6 +16,7 @@ from . import store
 from .auth import MANAGER, OPERATOR, ROLES, AuthError, RateLimiter, authenticate
 from .config import settings
 from .glpi import GlpiClient, GlpiError
+from .grafana_proxy import GrafanaProxy
 from .parsing import clean, parse_alert_title
 
 log = logging.getLogger("controlroom")
@@ -41,8 +42,10 @@ OUTCOMES = {  # esito -> (id tipo soluzione, nota obbligatoria, testo)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.glpi = GlpiClient()
+    app.state.grafana = GrafanaProxy()  # nessuna connessione all'avvio: il portale parte anche senza Grafana
     yield
     await app.state.glpi.aclose()
+    await app.state.grafana.aclose()
 
 
 def create_app() -> FastAPI:
@@ -127,10 +130,14 @@ def create_app() -> FastAPI:
     async def stats_page(request: Request):
         return page("stats.html", request, MANAGER)
 
-    @app.api_route("/grafana/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
-    async def grafana(path: str, user: dict = Depends(manager_dep)):
-        # Il reverse proxy verso Grafana arriva nella PR 2; qui conta solo il controllo del ruolo.
-        return JSONResponse({"error": "statistiche non ancora configurate"}, status_code=503)
+    @app.get("/grafana")
+    async def grafana_root(user: dict = Depends(manager_dep)):
+        return RedirectResponse("/grafana/", 307)
+
+    # POST serve alle query dei pannelli (/api/ds/query). Il ruolo Grafana è Viewer: niente modifiche.
+    @app.api_route("/grafana/{path:path}", methods=["GET", "HEAD", "POST"])
+    async def grafana(path: str, request: Request, user: dict = Depends(manager_dep)):
+        return await request.app.state.grafana.forward(request, path, user)
 
     def login_html(error: str = "") -> HTMLResponse:
         tpl = (STATIC / "login.html").read_text(encoding="utf-8")
