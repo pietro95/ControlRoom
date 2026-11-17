@@ -37,7 +37,9 @@ function nav(roles, active) {
 async function header(active) {
   const me = await api("/api/me");
   const hd = h("header", {},
-    h("h1", {}, "Control Room"),
+    h("div", { class: "brand" },
+      h("img", { src: "/static/img/logo/siciliacque_bianco.svg", alt: "Siciliacque" }),
+      h("h1", {}, "Control Room")),
     ...nav(me.roles || [], active),
     h("span", { class: "who" }, me.name),
     h("form", { method: "post", action: "/logout" }, h("button", { class: "btn sm ghost" }, "Esci")));

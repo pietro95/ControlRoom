@@ -1,8 +1,18 @@
-:root{--bg:#0f1b2a;--card:#182a40;--card2:#1f3550;--tx:#e9f0f7;--mut:#8fa6bd;--ok:#1f9d55;--warn:#d9822b;--bad:#d64545;--acc:#2b7fd6;--r:14px}
+/* Control Room — tema Siciliacque (fonte: repo gestione-contratti, static/css/app.css).
+ * Linee guida: docs/design/linee_guida_tipografia.pdf. Font Maven Pro (vendor/, nessuna CDN),
+ * blu istituzionale #003F6B; azzurro #5CBBFF solo su fondo blu. Tema scuro su base blu per la sala controllo:
+ * testo bianco su --acc/--ok/--bad/--warn con contrasto >= 4,5:1 (WCAG AA). */
+@font-face{font-family:"Maven Pro";font-style:normal;font-weight:400;font-display:swap;src:url("vendor/maven-pro-5.3.0/maven-pro-latin-400-normal.woff2") format("woff2")}
+@font-face{font-family:"Maven Pro";font-style:normal;font-weight:500;font-display:swap;src:url("vendor/maven-pro-5.3.0/maven-pro-latin-500-normal.woff2") format("woff2")}
+@font-face{font-family:"Maven Pro";font-style:normal;font-weight:600;font-display:swap;src:url("vendor/maven-pro-5.3.0/maven-pro-latin-600-normal.woff2") format("woff2")}
+@font-face{font-family:"Maven Pro";font-style:normal;font-weight:700;font-display:swap;src:url("vendor/maven-pro-5.3.0/maven-pro-latin-700-normal.woff2") format("woff2")}
+:root{--sa-blu:#003f6b;--sa-azzurro:#5cbbff;--bg:#002640;--card:#00345a;--card2:#0b4a78;--tx:#ffffff;--mut:#b4cbe0;--ok:#177f42;--warn:#9a5800;--bad:#b42318;--acc:#005a94;--r:14px}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--tx);font:18px/1.35 system-ui,Segoe UI,Roboto,sans-serif}
-header{display:flex;gap:12px;align-items:center;padding:12px 18px;background:#0b1522;position:sticky;top:0;z-index:5}
-header h1{font-size:20px;margin:0;flex:1}
+body{margin:0;background:var(--bg);color:var(--tx);font:18px/1.35 "Maven Pro",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+header{display:flex;gap:12px;align-items:center;padding:12px 18px;background:var(--sa-blu);border-bottom:3px solid var(--sa-azzurro);position:sticky;top:0;z-index:5}
+header .brand{display:flex;align-items:center;gap:14px;flex:1;min-width:0}
+header .brand img{height:34px;width:auto;display:block}
+header h1{font-size:20px;font-weight:600;letter-spacing:-.01em;margin:0;padding-left:14px;border-left:1px solid #ffffff55;white-space:nowrap}
 header .who{color:var(--mut);font-size:15px}
 .btn{border:0;border-radius:var(--r);padding:16px 22px;font-size:19px;font-weight:600;color:#fff;background:var(--acc);cursor:pointer;min-height:56px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
 .btn:active{filter:brightness(.85)}
@@ -23,14 +33,20 @@ main{padding:16px;max-width:1100px;margin:0 auto}
 .meta{color:var(--mut);font-size:15px}
 .actions{display:flex;gap:10px}.actions .btn{flex:1}
 .note{display:none;gap:8px;flex-direction:column}
-.note input,.f input,.f textarea{width:100%;font-size:18px;padding:12px;border-radius:10px;border:2px solid #34506f;background:#0f1b2a;color:var(--tx)}
+.note input,.f input,.f textarea{width:100%;font-size:18px;padding:12px;border-radius:10px;border:2px solid #2f6a96;background:var(--bg);color:var(--tx)}
 .empty{text-align:center;color:var(--mut);padding:60px 0;font-size:22px}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#000c;padding:12px 20px;border-radius:12px;display:none;z-index:9}
 .f{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}.f label{color:var(--mut);font-size:15px}
 .kinds{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin-bottom:14px}
-.kinds .btn{background:var(--card2)}.kinds .btn.sel{background:var(--acc);outline:3px solid #fff}
+.kinds .btn{background:var(--card2)}.kinds .btn.sel{background:var(--acc);outline:3px solid var(--sa-azzurro)}
 .sites{display:flex;flex-direction:column;gap:6px;margin-top:6px}
 .sites .btn{justify-content:flex-start;text-align:left;font-weight:500}
 .chosen{background:var(--ok);padding:12px 16px;border-radius:10px;margin-top:6px;display:none}
-.login{max-width:380px;margin:12vh auto;background:var(--card);padding:26px;border-radius:var(--r)}
+.login{max-width:380px;margin:12vh auto;border-top:4px solid var(--sa-azzurro);background:var(--card);padding:26px;border-radius:var(--r)}
 .err{color:#ff9b9b;margin-bottom:10px}
+.login .logo{display:block;height:48px;width:auto;margin:0 0 18px}
+.code{font-variant-numeric:tabular-nums}
+:focus-visible{outline:3px solid var(--sa-azzurro);outline-offset:2px}
+@media(max-width:700px){header{flex-wrap:wrap}header .brand img{height:28px}}
+button,input,textarea,select{font-family:inherit}
+.badge{white-space:nowrap}
