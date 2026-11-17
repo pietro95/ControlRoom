@@ -273,10 +273,10 @@ function render() {
   $("#fexp").textContent = vis.some((g) => g.count > 1 && !expanded.has(g.key)) ? "Espandi tutto" : "Comprimi tutto";
 }
 
-async function load() {
+async function load(pre) {
   if (busy || note) return; // non ridisegnare mentre l'operatore scrive
   try {
-    const q = await api("/api/queue");
+    const q = pre ? await pre.then((r) => { if (r instanceof Error) throw r; return r; }) : await api("/api/queue");
     setBanner(false);
     groups = q.groups;
     $("#total").textContent = q.total; $("#ngroups").textContent = groups.length;
@@ -293,6 +293,7 @@ async function load() {
 }
 
 (async () => {
+  const first = api("/api/queue").catch((e) => e); // la coda parte subito, in parallelo all'intestazione
   me = await header("queue");
   const f = store.get("filters", {});
   for (const [id, v] of [["#facq", f.acq], ["#ftipo", f.tipo]]) if (v) $(id).append(h("option", { value: v }, v)), $(id).value = v;
@@ -306,6 +307,6 @@ async function load() {
     const all = vis.every((g) => expanded.has(g.key));
     vis.forEach((g) => all ? expanded.delete(g.key) : expanded.add(g.key)); render();
   });
-  load(); setInterval(load, me.refresh * 1000);
+  load(first); setInterval(() => load(), me.refresh * 1000);
 })();
 </script></body></html>

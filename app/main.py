@@ -1,6 +1,9 @@
 """App operatore Control Room: coda alert a pulsanti + nuova chiamata, su GLPI via API."""
+import asyncio
+import copy
 import html
 import logging
+import time
 import re
 import secrets
 from contextlib import asynccontextmanager
@@ -62,6 +65,26 @@ def glpi_write_reason(e: Exception) -> str:
         return "GLPI non raggiungibile"
     msg = re.findall(r'"([^"]{8,})"', m)
     return "GLPI: " + (msg[-1] if msg else m[:160])
+
+
+async def each(ids: list[int], fn, what: str) -> tuple[list[int], list[int], str]:
+    """Applica fn(tid) a tutti i ticket in parallelo (max GLPI_CONCURRENCY): (riusciti, falliti, primo motivo)."""
+    sem = asyncio.Semaphore(max(1, settings.glpi_concurrency))
+
+    async def one(tid):
+        async with sem:
+            try:
+                await fn(tid)
+                return None
+            except GlpiError as e:
+                log.warning("%s %s: %s", what, tid, e)
+                return e
+
+    res = await asyncio.gather(*(one(t) for t in ids))
+    done = [t for t, e in zip(ids, res) if e is None]
+    failed = [t for t, e in zip(ids, res) if e is not None]
+    error = next((glpi_write_reason(e) for e in res if e is not None), "")
+    return done, failed, error
 
 
 def is_waiting(status) -> bool:
@@ -224,22 +247,30 @@ def create_app() -> FastAPI:
     user_cache: dict[str, tuple[str, str]] = {}  # id utente GLPI -> (etichetta, login)
 
     async def resolve_techs(glpi: GlpiClient, rows: list[dict]) -> None:
-        """Il campo 5 della ricerca GLPI restituisce l'ID utente: lo si traduce in nome (con cache)."""
+        """Il campo 5 della ricerca GLPI restituisce l'ID utente: lo si traduce in nome (con cache).
+        Gli ID non ancora in cache si leggono tutti insieme, in parallelo."""
+        missing = sorted({t for r in rows for t in r.get("tech", []) if t.isdigit() and t not in user_cache})
+        sem = asyncio.Semaphore(max(1, settings.glpi_concurrency))
+
+        async def fetch(t: str):
+            async with sem:
+                try:
+                    u = await glpi.get_user(int(t))
+                except GlpiError:
+                    return
+            if u:
+                login = u["name"].rsplit("(", 1)[-1].rstrip(")") if u["name"].endswith(")") else ""
+                user_cache[t] = (u["name"], login)
+
+        await asyncio.gather(*(fetch(t) for t in missing))
         for r in rows:
             labels, keys = [], set()
             for t in r.get("tech", []):
                 if t.isdigit():
                     if t not in user_cache:
-                        try:
-                            u = await glpi.get_user(int(t))
-                        except GlpiError:
-                            u = None
-                        if not u:
-                            labels.append(f"utente GLPI #{t}")  # non in cache: si riprova al prossimo giro
-                            keys.add(t)
-                            continue
-                        login = u["name"].rsplit("(", 1)[-1].rstrip(")") if u["name"].endswith(")") else ""
-                        user_cache[t] = (u["name"], login)
+                        labels.append(f"utente GLPI #{t}")  # non in cache: si riprova al prossimo giro
+                        keys.add(t)
+                        continue
                     label, login = user_cache[t]
                     labels.append(label)
                     keys |= {t, label.lower(), login.lower()} - {""}
@@ -253,8 +284,8 @@ def create_app() -> FastAPI:
 
         Se il corpo non indica né tipo né oggetto, la descrizione fa da discriminante: allarmi diversi
         sullo stesso sito non finiscono mai nello stesso gruppo (e quindi non si chiudono insieme)."""
-        rows = await glpi.open_alerts()
-        await resolve_techs(glpi, rows)
+        rows, calls = await asyncio.gather(glpi.open_alerts(), glpi.open_calls())  # due ricerche in parallelo
+        await resolve_techs(glpi, rows + calls)
         groups: dict[str, dict] = {}
         for r in rows:
             s = parse_alert_title(r["title"])
@@ -282,8 +313,6 @@ def create_app() -> FastAPI:
             if r["opened"] and (not g["last"] or r["opened"] >= g["last"]):
                 g["last"] = r["opened"]
                 g["descrizione"] = a.descrizione or g["descrizione"]  # la più recente
-        calls = await glpi.open_calls()
-        await resolve_techs(glpi, calls)
         for r in calls:  # chiamate dal campo: una riga per ticket, mai raggruppate
             c = parse_call(r["title"], r.get("content", ""))
             if not c:
@@ -312,10 +341,38 @@ def create_app() -> FastAPI:
             g["waiting"] = g["waiting_count"] == g["count"]  # gruppo "in attesa" solo se lo sono tutti
         return out
 
+    qcache: dict = {"glpi": None, "at": 0.0, "groups": None, "gen": 0}
+    qlock = asyncio.Lock()
+
+    async def get_queue(glpi: GlpiClient) -> list[dict]:
+        """Coda condivisa: una sola lettura da GLPI ogni QUEUE_CACHE_SECONDS per tutti gli operatori;
+        richieste contemporanee attendono la stessa lettura invece di ripeterla. Copia per il chiamante."""
+        ttl = settings.queue_cache_seconds
+        async with qlock:
+            fresh = qcache["glpi"] is glpi and qcache["groups"] is not None and time.monotonic() - qcache["at"] < ttl
+            if not fresh:
+                gen = qcache["gen"]
+                groups = await build_queue(glpi)
+                if gen == qcache["gen"]:  # nessuna scrittura nel frattempo: si può riusare
+                    qcache.update(glpi=glpi, at=time.monotonic(), groups=groups)
+                else:
+                    return groups
+            return copy.deepcopy(qcache["groups"])
+
+    def invalidate_queue() -> None:
+        qcache["gen"] += 1
+        qcache["groups"] = None
+
+    async def queue_items(glpi: GlpiClient) -> dict[int, dict]:
+        try:
+            return {i["id"]: i for g in await get_queue(glpi) for i in g["items"]}
+        except GlpiError:
+            raise HTTPException(502, "GLPI non raggiungibile")
+
     @app.get("/api/queue")
     async def queue(user: dict = Depends(operator_dep), glpi: GlpiClient = Depends(glpi_dep)):
         try:
-            groups = await build_queue(glpi)
+            groups = await get_queue(glpi)
             assign_section(groups, await my_names(glpi, user["username"]))
         except GlpiError as e:
             log.warning("queue: %s", e)
@@ -338,10 +395,7 @@ def create_app() -> FastAPI:
         note = "\n".join(x for x in (clean(r) for r in body.note.splitlines()) if x)  # a capo preservati
         if note_required and len(note) < 3:
             raise HTTPException(422, "nota obbligatoria per questo esito")
-        try:  # il token di servizio può chiudere SOLO ticket attualmente nella coda alert
-            items = {i["id"]: i for g in await build_queue(glpi) for i in g["items"]}
-        except GlpiError:
-            raise HTTPException(502, "GLPI non raggiungibile")
+        items = await queue_items(glpi)  # il token di servizio può chiudere SOLO ticket attualmente nella coda
         req = list(dict.fromkeys(body.ticket_ids))
         not_taken = [i for i in req if i in items and not items[i]["taken"]]
         if not_taken:
@@ -349,15 +403,8 @@ def create_app() -> FastAPI:
         ids = [i for i in req if i in items]
         skipped = [i for i in req if i not in items]
         content = label + (f": {note}" if note else ".") + f"\n[Control Room app — operatore: {user['name']} ({user['username']})]"
-        done, failed, error = [], [], ""
-        for tid in ids:
-            try:
-                await glpi.add_solution(tid, getattr(settings, attr), content)
-                done.append(tid)
-            except GlpiError as e:
-                log.warning("resolve %s: %s", tid, e)
-                failed.append(tid)
-                error = error or glpi_write_reason(e)
+        done, failed, error = await each(ids, lambda t: glpi.add_solution(t, getattr(settings, attr), content), "resolve")
+        invalidate_queue()
         store.log(user["username"], user["name"], "resolve",
                   {"outcome": body.outcome, "note": note, "done": done, "failed": failed, "skipped": skipped})
         return {"ok": not failed, "done": done, "failed": failed, "skipped": skipped, "error": error}
@@ -369,8 +416,7 @@ def create_app() -> FastAPI:
     async def take(body: TakeIn, user: dict = Depends(operator_dep), glpi: GlpiClient = Depends(glpi_dep)):
         """Presa in carico: l'operatore (utente GLPI con lo stesso login AD) diventa tecnico assegnato."""
         try:
-            items = {i["id"]: i for g in await build_queue(glpi) for i in g["items"]}
-            uid = await glpi.find_user_by_login(user["username"])
+            items, uid = await asyncio.gather(queue_items(glpi), glpi.find_user_by_login(user["username"]))
         except GlpiError:
             raise HTTPException(502, "GLPI non raggiungibile")
         if not uid:
@@ -378,15 +424,8 @@ def create_app() -> FastAPI:
         req = list(dict.fromkeys(body.ticket_ids))
         ids = [i for i in req if i in items and not items[i]["taken"]]
         skipped = [i for i in req if i not in ids]
-        done, failed, error = [], [], ""
-        for tid in ids:
-            try:
-                await glpi.take_ticket(tid, uid)
-                done.append(tid)
-            except GlpiError as e:
-                log.warning("take %s: %s", tid, e)
-                failed.append(tid)
-                error = error or glpi_write_reason(e)
+        done, failed, error = await each(ids, lambda t: glpi.take_ticket(t, uid), "take")
+        invalidate_queue()
         store.log(user["username"], user["name"], "take", {"done": done, "failed": failed, "skipped": skipped})
         # ticket presi ora e ancora senza Posizione (il sync non l'ha trovata): l'operatore deve indicarla
         need = [{"id": t, "title": items[t]["title"], "text": "\n".join(body_text(items[t]["content"]))[:4000]}
@@ -401,31 +440,15 @@ def create_app() -> FastAPI:
     @app.post("/api/location", dependencies=[Depends(write_guard)])
     async def set_location(body: LocationIn, user: dict = Depends(operator_dep), glpi: GlpiClient = Depends(glpi_dep)):
         """Posizione GLPI indicata dall'operatore per ticket in coda che ne sono privi."""
-        try:
-            items = {i["id"]: i for g in await build_queue(glpi) for i in g["items"]}
-        except GlpiError:
-            raise HTTPException(502, "GLPI non raggiungibile")
+        items = await queue_items(glpi)
         req = list(dict.fromkeys(body.ticket_ids))
         ids = [i for i in req if i in items]
         skipped = [i for i in req if i not in ids]
-        done, failed, error = [], [], ""
-        for tid in ids:
-            try:
-                await glpi.set_location(tid, body.location_id)
-                done.append(tid)
-            except GlpiError as e:
-                log.warning("set_location %s: %s", tid, e)
-                failed.append(tid)
-                error = error or glpi_write_reason(e)
+        done, failed, error = await each(ids, lambda t: glpi.set_location(t, body.location_id), "set_location")
+        invalidate_queue()
         store.log(user["username"], user["name"], "set_location",
                   {"location_id": body.location_id, "done": done, "failed": failed, "skipped": skipped})
         return {"ok": not failed, "done": done, "failed": failed, "skipped": skipped, "error": error}
-
-    async def queue_ids(glpi: GlpiClient) -> set[int]:
-        try:
-            return {i for g in await build_queue(glpi) for i in g["ids"]}
-        except GlpiError:
-            raise HTTPException(502, "GLPI non raggiungibile")
 
     class ProgressIn(BaseModel):
         ticket_ids: list[int] = Field(min_length=1, max_length=200)
@@ -441,10 +464,7 @@ def create_app() -> FastAPI:
         note = "\n".join(x for x in (clean(r) for r in body.note.splitlines()) if x)
         if len(note) < 3:
             raise HTTPException(422, "nota obbligatoria")
-        try:
-            items = {i["id"]: i for g in await build_queue(glpi) for i in g["items"]}
-        except GlpiError:
-            raise HTTPException(502, "GLPI non raggiungibile")
+        items = await queue_items(glpi)
         req = list(dict.fromkeys(body.ticket_ids))
         not_taken = [i for i in req if i in items and not items[i]["taken"]]
         if not_taken:  # come per la chiusura: prima la presa in carico (chi), poi le manovre (cosa)
@@ -453,19 +473,15 @@ def create_app() -> FastAPI:
         skipped = [i for i in req if i not in items]
         tag = {"set": " [messo in attesa]", "resume": " [ripreso dall'attesa]", "keep": ""}[body.wait]
         content = f"Manovra/avanzamento{tag}: {note}\n[Control Room app — operatore: {user['name']} ({user['username']})]"
-        done, failed, error = [], [], ""
-        for tid in ids:
-            try:
-                await glpi.add_followup(tid, content)
-                if body.wait == "set":
-                    await glpi.set_status(tid, settings.status_waiting)
-                elif body.wait == "resume":
-                    await glpi.set_status(tid, settings.status_resume)
-                done.append(tid)
-            except GlpiError as e:
-                log.warning("progress %s: %s", tid, e)
-                failed.append(tid)
-                error = error or glpi_write_reason(e)
+        async def one(tid: int):
+            await glpi.add_followup(tid, content)
+            if body.wait == "set":
+                await glpi.set_status(tid, settings.status_waiting)
+            elif body.wait == "resume":
+                await glpi.set_status(tid, settings.status_resume)
+
+        done, failed, error = await each(ids, one, "progress")
+        invalidate_queue()
         store.log(user["username"], user["name"], "progress",
                   {"wait": body.wait, "note": note, "done": done, "failed": failed, "skipped": skipped})
         return {"ok": not failed, "done": done, "failed": failed, "skipped": skipped, "error": error}
@@ -474,11 +490,18 @@ def create_app() -> FastAPI:
     async def history(ids: str, user: dict = Depends(operator_dep), glpi: GlpiClient = Depends(glpi_dep)):
         """Storico avanzamenti dei ticket in coda (max 20), dal più recente."""
         want = [int(x) for x in dict.fromkeys(re.findall(r"\d+", ids))][:20]
-        allowed = await queue_ids(glpi)
+        allowed = await queue_items(glpi)
+        tids = [i for i in want if i in allowed]
+        sem = asyncio.Semaphore(max(1, settings.glpi_concurrency))
+
+        async def fetch(tid: int):
+            async with sem:
+                return await glpi.followups(tid)
+
         rows = []
         try:
-            for tid in (i for i in want if i in allowed):
-                for f in await glpi.followups(tid):
+            for tid, fups in zip(tids, await asyncio.gather(*(fetch(t) for t in tids))):
+                for f in fups:
                     text = html.unescape(html.unescape(f["content"]))
                     text = re.sub(r"<br\s*/?>|</p>", "\n", text, flags=re.I)
                     text = re.sub(r"<[^>]+>", "", text).strip()
@@ -512,6 +535,7 @@ def create_app() -> FastAPI:
         location_name: str = Field(default="", max_length=200)
         caller_id: int | None = None
         note: str = Field(min_length=3, max_length=1500)
+        take: bool = False  # "Salva e prendi in carico": l'operatore diventa subito tecnico assegnato
 
     @app.post("/api/call", dependencies=[Depends(write_guard)])
     async def new_call(body: CallIn, user: dict = Depends(operator_dep), glpi: GlpiClient = Depends(glpi_dep)):
@@ -528,7 +552,12 @@ def create_app() -> FastAPI:
         first = note.splitlines()[0][:60]
         title = f"CHIAMATA: {site_tag} – {first}"
         try:
-            caller = await glpi.get_user(body.caller_id)  # nome dal GLPI, non dal client
+            caller, uid = await asyncio.gather(  # nome dal GLPI, non dal client
+                glpi.get_user(body.caller_id),
+                glpi.find_user_by_login(user["username"]) if body.take else asyncio.sleep(0, None))
+            if body.take and not uid:  # verificato PRIMA di creare: niente ticket aperto a metà
+                raise HTTPException(422, f"utente {user['username']} non presente o non attivo in GLPI: "
+                                         "usa «Apri ticket» senza presa in carico")
             if not caller:
                 raise HTTPException(422, "chiamante non trovato in GLPI")
             lines = [f"Sito: {loc}", f"Chiamante: {caller['name']}", "", note,
@@ -538,8 +567,19 @@ def create_app() -> FastAPI:
             log.warning("create_call: %s", e)
             store.log(user["username"], user["name"], "call_fail", {"title": title})
             raise HTTPException(502, "GLPI non raggiungibile: ticket NON creato")
-        store.log(user["username"], user["name"], "call", {"ticket": tid, "title": title})
-        return {"ok": True, "ticket_id": tid, "title": title}
+        invalidate_queue()
+        store.log(user["username"], user["name"], "call", {"ticket": tid, "title": title, "take": body.take})
+        taken, take_error = False, ""
+        if body.take:  # il ticket esiste già: un errore qui non lo annulla, lo si segnala
+            try:
+                await glpi.take_ticket(tid, uid)
+                taken = True
+            except GlpiError as e:
+                log.warning("take %s: %s", tid, e)
+                take_error = glpi_write_reason(e)
+            store.log(user["username"], user["name"], "take",
+                      {"done": [tid] if taken else [], "failed": [] if taken else [tid], "skipped": []})
+        return {"ok": True, "ticket_id": tid, "title": title, "taken": taken, "take_error": take_error}
 
     @app.get("/api/audit")
     async def audit(user: dict = Depends(user_dep)):
