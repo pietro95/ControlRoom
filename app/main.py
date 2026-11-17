@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import store
-from .auth import MANAGER, OPERATOR, ROLES, AuthError, RateLimiter, authenticate
+from .auth import MANAGER, OPERATOR, ROLES, AuthError, RateLimiter, authenticate, check_ldap_tls_config
 from .config import settings
 from .glpi import GlpiClient, GlpiError
 from .grafana_proxy import GrafanaProxy
@@ -49,6 +49,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    check_ldap_tls_config()
     secret = settings.session_secret
     if not secret:
         if not settings.dev_auth:

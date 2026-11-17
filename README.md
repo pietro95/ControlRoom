@@ -9,7 +9,11 @@ Interfaccia a pulsanti sopra GLPI 11 (REST API legacy). Due schermate:
 - **Nuova chiamata**: ricerca sito → tipo (pulsanti) → chiamante → ticket con titolo `CHIAMATA: <codice> – <tipo>`,
   origine Telefono, posizione e urgenza valorizzate.
 
-Login con account AD (bind LDAP). **Ruoli** dai gruppi AD:
+Login con account AD: **bind LDAP con le credenziali dell'utente stesso** (UPN `utente@dominio`), poi, sulla stessa
+connessione, lettura del suo `displayName` e verifica dei gruppi. **Nessun account di servizio**: non c'è un segreto LDAP
+da custodire e il portale non può leggere AD più di quanto possa l'utente che fa login (gestione-contratti invece usa
+`svc_contratti` perché il suo modulo cerca prima l'utente e poi verifica la password). Il certificato del DC è
+sempre verificato (`LDAP_CA_CERT_FILE`, CA interna). **Ruoli** dai gruppi AD:
 - `LDAP_OPERATOR_GROUP_DN` → **operatore**: Allarmi + Nuova chiamata (unico ruolo che scrive su GLPI).
 - `LDAP_MANAGER_GROUP_DN` → **manager**: sezione Statistiche, sola lettura. `/api/resolve`, `/api/call`, `/api/queue`,
   `/api/sites` rispondono 403.
@@ -116,7 +120,7 @@ Stesse convenzioni di gestione-contratti (server Docker condiviso). Tutto sotto 
 | Cartella | Contenuto | Permessi |
 |---|---|---|
 | `app/` | checkout git, **mai modificato a mano** (lo script rifiuta di procedere) | utente |
-| `config/` | `.env` (600) e `docker-compose.override.yml` generato | 700 |
+| `config/` | `.env` (600), `docker-compose.override.yml` generato, `certs/` (CA interna per LDAPS, 755) | 700 |
 | `csv/` | `site_reparto.csv`, `excluded_tickets.csv` (modificabili; letti dal sync) | 755 |
 | `data/` | `audit/` (uid 10001), `postgres/` (70, 700), `grafana/` (472) | |
 | `backup/` | dump e archivi, anche automatici prima di ogni aggiornamento | 700 |
@@ -150,6 +154,11 @@ Copiare `scripts/deploy.sh` sul server solo per il primo `prepare` (poi si usa q
     /appdata/controlroom/app/scripts/deploy.sh check-glpi
     /appdata/controlroom/app/scripts/deploy.sh sync
 
+**CA interna per LDAPS**: `prepare` crea `config/certs/` e, se esiste, copia `ca-interna.pem` di gestione-contratti
+(la stessa CA firma il DC). Altrimenti va copiato a mano il certificato PEM della CA in `config/certs/ca-interna.pem`.
+Lo script si ferma se il file indicato da `LDAP_CA_CERT_FILE` manca o se `LDAP_VALIDATE_TLS=false`; l'app stessa
+non parte se il file configurato non esiste.
+
 Da compilare in `config/.env`: `APP_PORT` (porta libera e non standard, lo script verifica che lo sia), `APP_BIND`
 (con Nginx Proxy Manager in container: l'IP con cui il container raggiunge l'host, di solito `172.17.0.1`),
 token GLPI, `LDAP_URL` e DN dei gruppi, `PORTAL_PUBLIC_URL` (`https://<nome DNS>`). **Attenzione**: `LDAP_*` e
@@ -160,7 +169,8 @@ avvio → attesa di salute e di `/healthz` su `APP_BIND:APP_PORT` → pulizia de
 Se il sync era attivo viene riavviato con la nuova immagine (salvo configurazione GLPI cambiata dopo `check-glpi`).
 Altri comandi: `status`, `backup [etichetta]`. Rollback: `install <tag precedente>` (+ ripristino del dump se serve).
 
-Lo script si ferma su: `.env` incompleto, `DEV_AUTH`/`DEV_ROLES` attivi, `COOKIE_SECURE` spento, password del sync non
+Lo script si ferma su: `.env` incompleto, `DEV_AUTH`/`DEV_ROLES` attivi, `COOKIE_SECURE` spento, `LDAP_VALIDATE_TLS`
+spento, CA interna mancante, password del sync non
 alfanumerica, Compose < 2.24, porta occupata, subnet `172.30.99.0/28` in uso, modifiche locali in `app/`, `sync`
 senza `check-glpi` riuscito o con impostazioni GLPI cambiate dopo il check.
 
@@ -222,6 +232,11 @@ In questo ambiente con Docker reale (Grafana OSS 11.4.0, Postgres 16), con `DEV_
 - **Mai provato contro il GLPI reale** (dal sandbox di sviluppo non era raggiungibile): flusso, parametri di ricerca, e
   forma delle risposte seguono la documentazione dell'API legacy e sono testati solo sul mock. Primo test: ambiente
   di prova o ticket di prova, con `DEV_AUTH` spento.
+- **LDAPS con la CA interna**: la verifica del certificato è testata con un vero handshake TLS contro un server di prova
+  (`tests/test_ldap_tls.py`: accettato con la CA giusta, rifiutato senza o con un'altra CA). Da verificare col DC reale:
+  che `ca-interna.pem` sia la CA che lo firma e che il nome in `LDAP_URL` compaia nel certificato del DC.
+  Attenzione: Python 3.13+ rifiuta CA prive dell'estensione *keyUsage*; l'immagine usa 3.12, ma prima di aggiornarla
+  verificare la CA interna (`openssl x509 -in ca-interna.pem -noout -ext keyUsage`).
 - **Login AD e ruoli**: bind UPN, query `memberOf:1.2.840.113556.1.4.1941:=<DN>` per i gruppi annidati e mapping
   ruoli testati solo con una connessione LDAP simulata (`tests/test_roles.py`). Da verificare su DC reale: che l'account
   in un gruppo annidato ottenga il ruolo, che i DN in `.env` coincidano esattamente con quelli dei gruppi, e i tempi

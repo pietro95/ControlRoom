@@ -14,7 +14,7 @@
 #   backup [etichetta]  pg_dump + archivio di audit, grafana, config (permessi 600) in backup/
 #
 # Struttura (CR_BASE, default /appdata/controlroom):
-#   app/      checkout git (deploy key in sola lettura, vedi README)   config/   .env (600) e override generato (700)
+#   app/      checkout git (deploy key in sola lettura, vedi README)   config/   .env (600), override, certs/ (700)
 #   csv/      mapping sito->reparto ed esclusioni, modificabili a mano  backup/   dump e archivi (700)
 #   data/     audit (uid 10001), postgres (70), grafana (472)
 #
@@ -28,6 +28,9 @@ APP="$BASE/app"
 DATA="$BASE/data"
 CONF="$BASE/config"
 CSV="$BASE/csv"
+CERTS="$CONF/certs"
+CERTS_IN_CONTAINER=/etc/controlroom/certs
+GC_CA=/appdata/gestione-contratti/config/certs/ca-interna.pem
 ENV_FILE="$CONF/.env"
 OVERRIDE="$CONF/docker-compose.override.yml"
 MARKER="$CONF/.glpi_checked"
@@ -63,6 +66,7 @@ cmd_prepare() {
   $SUDO chown "$(id -u):$(id -g)" "$BASE" "$CONF" "$CSV" "$BASE/backup"
   chmod 700 "$CONF" "$BASE/backup"
   chmod 755 "$CSV"   # letto dal container del sync (uid 10001): niente segreti qui
+  mkdir -p "$CERTS" && chmod 755 "$CERTS"   # CA interna (pubblica), letta dal container dell'app
   # ogni container scrive con il proprio utente: app 10001, grafana 472, postgres 70 (immagine alpine)
   $SUDO chown 10001:10001 "$DATA/audit"
   $SUDO chown 472:0 "$DATA/grafana"
@@ -90,6 +94,15 @@ cmd_prepare() {
     done
     ok ".env creato (600) con segreti generati"
   fi
+  say "CA interna per LDAPS in $CERTS"
+  if [ -n "$(ls -A "$CERTS" 2>/dev/null)" ]; then
+    ok "presente: $(find "$CERTS" -maxdepth 1 -type f -printf '%f ')"
+  elif [ -f "$GC_CA" ]; then
+    cp "$GC_CA" "$CERTS/ca-interna.pem" && chmod 644 "$CERTS/ca-interna.pem"
+    ok "copiata da gestione-contratti ($GC_CA): verificare che sia la CA che firma il DC"
+  else
+    warn "nessun certificato: copiare la CA interna (PEM) in $CERTS/ca-interna.pem"
+  fi
   write_override
 
   say "Da fare a mano: compilare $ENV_FILE"
@@ -105,6 +118,7 @@ services:
   app:
     volumes: !override
       - $DATA/audit:/srv/data
+      - $CERTS:$CERTS_IN_CONTAINER:ro
   sync:
     volumes: !override
       - $DATA/audit:/srv/appdata:ro
@@ -136,7 +150,7 @@ preflight() {
   say "Controlli"
   command -v docker >/dev/null || die "docker non installato"
   [ -f "$ENV_FILE" ] || die "manca $ENV_FILE: eseguire prima 'prepare'"
-  [ -f "$OVERRIDE" ] || write_override
+  write_override >/dev/null   # file derivato: sempre allineato alla versione dello script
 
   local v; v="$(docker compose version --short 2>/dev/null | sed 's/^v//')" || die "manca il plugin docker compose"
   if [ "$(printf '%s\n2.24.0\n' "$v" | sort -V | head -1)" != "2.24.0" ]; then die "docker compose $v: serve >= 2.24 (tag !override)"; fi
@@ -153,6 +167,17 @@ preflight() {
   if grep -qE '^DEV_AUTH=(1|true|yes|on)' "$ENV_FILE"; then die "DEV_AUTH attivo: vietato in produzione"; fi
   if grep -qE '^DEV_ROLES=.+' "$ENV_FILE"; then die "DEV_ROLES valorizzato: vietato in produzione"; fi
   if grep -qiE '^COOKIE_SECURE=(0|false|no|off)' "$ENV_FILE"; then die "COOKIE_SECURE disattivato"; fi
+  if grep -qiE '^LDAP_VALIDATE_TLS=(0|false|no|off)' "$ENV_FILE"; then
+    die "LDAP_VALIDATE_TLS disattivato: le password AD sarebbero esposte a un DC falso. Usare LDAP_CA_CERT_FILE"
+  fi
+  local ca; ca="$(envval LDAP_CA_CERT_FILE)"
+  if [ -n "$ca" ]; then
+    [[ "$ca" == "$CERTS_IN_CONTAINER/"* ]] || die "LDAP_CA_CERT_FILE deve stare in $CERTS_IN_CONTAINER/ (montata da $CERTS)"
+    [ -f "$CERTS/${ca#"$CERTS_IN_CONTAINER"/}" ] || die "manca $CERTS/${ca#"$CERTS_IN_CONTAINER"/}: copiare lì la CA interna (PEM) che firma il DC"
+    ok "CA interna per LDAPS: $CERTS/${ca#"$CERTS_IN_CONTAINER"/}"
+  elif [[ "$(envval LDAP_URL)" == ldaps://* ]]; then
+    warn "LDAP_CA_CERT_FILE vuoto: il certificato del DC sarà verificato solo contro le CA pubbliche dell'immagine"
+  fi
   [[ "$(envval SYNC_DB_PASSWORD)" =~ ^[A-Za-z0-9]+$ ]] || die "SYNC_DB_PASSWORD deve contenere solo [A-Za-z0-9] (finisce in un URL)"
   [[ "$(envval PORTAL_PUBLIC_URL)" == https://* ]] || warn "PORTAL_PUBLIC_URL non è https: i cookie Secure non funzioneranno"
   if [ "$(stat -c %a "$ENV_FILE")" != "600" ]; then chmod 600 "$ENV_FILE"; warn ".env reso 600"; fi
