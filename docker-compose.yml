@@ -3,7 +3,7 @@
 #   - solo "app" pubblica una porta (su 127.0.0.1, da esporre con reverse proxy TLS);
 #   - grafana_net: rete interna app <-> grafana, IP fissi. Grafana accetta l'header di auth proxy
 #     SOLO dall'IP dell'app (GF_AUTH_PROXY_WHITELIST) e non ha accesso a Internet;
-#   - db_net: rete interna postgres <-> grafana (<-> sync, fase successiva). L'app NON è su db_net:
+#   - db_net: rete interna postgres <-> grafana <-> sync. L'app NON è su db_net:
 #     il portale operatore non dipende da Postgres né da Grafana (nessun depends_on).
 x-logging: &logging
   driver: json-file
@@ -12,6 +12,7 @@ x-logging: &logging
 services:
   app:
     build: .
+    image: controlroom:local
     restart: unless-stopped
     env_file: .env
     environment:
@@ -27,6 +28,32 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    logging: *logging
+
+  # worker GLPI -> Postgres: stessa immagine dell'app, comando diverso. Legge l'audit dell'app in sola lettura.
+  sync:
+    build: .
+    image: controlroom:local
+    command: ["python", "-m", "sync.worker"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://cr_sync:${SYNC_DB_PASSWORD}@postgres:5432/controlroom
+      AUDIT_DB_PATH: /srv/appdata/audit.db
+      SITE_REPARTO_CSV: /srv/config/site_reparto.csv
+      EXCLUDED_TICKETS_CSV: /srv/config/excluded_tickets.csv
+    volumes:
+      - appdata:/srv/appdata:ro
+      - ./config:/srv/config:ro
+    networks: [default, db_net]          # default: per raggiungere GLPI
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:   # vivo = il ciclo gira (GLPI giù NON rende il worker unhealthy: lo segnala in v_sync_status)
+      test: ["CMD", "python", "-c", "import os,time,sys; sys.exit(0 if time.time()-os.path.getmtime('/tmp/sync_heartbeat')<300 else 1)"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     logging: *logging
 
   postgres:

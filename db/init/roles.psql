@@ -1,0 +1,18 @@
+-- Ruoli e schema di reporting. Variabili psql: db, sync_pw, graf_pw.
+-- Estensione .psql: l'entrypoint di postgres NON lo esegue da solo (lo lancia 01_roles.sh con le variabili).
+-- Usato identico dai test (tests/conftest.py).
+REVOKE ALL ON DATABASE :"db" FROM PUBLIC;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+
+CREATE ROLE cr_sync LOGIN PASSWORD :'sync_pw';
+CREATE ROLE grafana_ro LOGIN PASSWORD :'graf_pw' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
+ALTER ROLE grafana_ro SET default_transaction_read_only = on;
+ALTER ROLE grafana_ro SET statement_timeout = '30s';
+
+GRANT CONNECT ON DATABASE :"db" TO cr_sync, grafana_ro;
+CREATE SCHEMA reporting AUTHORIZATION cr_sync;
+GRANT USAGE ON SCHEMA reporting TO grafana_ro;
+-- tutto ciò che cr_sync creerà in reporting (tabelle, viste) sarà leggibile da grafana_ro, e solo leggibile
+ALTER DEFAULT PRIVILEGES FOR ROLE cr_sync IN SCHEMA reporting GRANT SELECT ON TABLES TO grafana_ro;
+ALTER ROLE grafana_ro SET search_path = reporting;
+ALTER ROLE cr_sync SET search_path = reporting;

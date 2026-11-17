@@ -3,6 +3,7 @@ WORKDIR /srv
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
+COPY sync ./sync
 RUN useradd -r -u 10001 cr && mkdir /srv/data && chown cr /srv/data
 USER cr
 ENV DB_PATH=/srv/data/audit.db
