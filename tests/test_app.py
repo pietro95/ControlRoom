@@ -69,6 +69,7 @@ def test_queue_grouping(client):
     assert set(by) == {"Pompa P2", "Vasca V1"}
     p = by["Pompa P2"]
     assert p["count"] == 3 and p["flapping"] is True and p["tipo"] == "Blocco pompa"
+    assert all(g["categoria"] == "Allarme" for g in q["groups"] if g["kind"] == "alert")  # ogni ALERT ON è un Allarme
     assert p["descrizione"] == "Intervento termico pompa P2" and len(p["items"]) == 3
     assert p["items"][0]["opened"] >= p["items"][-1]["opened"]
     assert by["Vasca V1"]["count"] == 1 and by["Vasca V1"]["tipo"] == "Livello"
@@ -164,7 +165,7 @@ def test_open_calls_in_queue_and_closable(client):
     calls = [g for g in q["groups"] if g.get("kind") == "call"]
     assert [g["ids"] for g in calls] == [[tid]]
     c = calls[0]
-    assert c["code"] == "FNC-IS00600" and c["acquedotto"] == "FNC" and c["tipo"] == "Chiamata"
+    assert c["code"] == "FNC-IS00600" and c["acquedotto"] == "FNC" and c["tipo"] == "Chiamata" and c["categoria"] == "Chiamata"
     assert "Porta forzata" in c["descrizione"] and "Bianchi Mario" in c["descrizione"]
     assert "Control Room app" not in c["descrizione"]
     assert client.post("/api/take", json={"ticket_ids": [tid]}, headers=H).json()["done"] == [tid]

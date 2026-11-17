@@ -30,7 +30,7 @@ function fmtTime(s) { // "2026-11-17 09:12:00" -> "09:12"
 function nav(roles, active) {
   const items = [];
   const link = (key, href, label) => h("a", { class: "btn sm " + (active === key ? "" : "ghost"), href }, label);
-  if (roles.includes("operator")) items.push(link("queue", "/", "Allarmi"), link("call", "/call", "Nuova chiamata"));
+  if (roles.includes("operator")) items.push(link("queue", "/", "Ticket"), link("call", "/call", "Nuova chiamata"));
   if (roles.includes("manager")) items.push(link("stats", "/stats", "Statistiche"));
   return items;
 }
