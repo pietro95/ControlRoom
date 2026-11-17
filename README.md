@@ -111,23 +111,66 @@ su tutte le dashboard. Screenshot su questo dataset: `docs/screenshots/`.
     DATABASE_URL=postgresql://cr_sync:...@<host>:5432/controlroom python -m scripts.gen_synthetic --seed 42
 
 ## Deploy in produzione: `scripts/deploy.sh`
-Tutti i dati sotto una cartella (default `/appdata/controlroom`, variabile `CR_BASE`):
-`app/` codice + `.env` + `docker-compose.override.yml` generato · `config/` CSV · `data/{audit,postgres,grafana}` ·
-`backup/`. Nessun volume Docker nominato. Primo deploy (collegarsi con `ssh -A` per clonare con l'agent di 1Password):
+Stesse convenzioni di gestione-contratti (server Docker condiviso). Tutto sotto `/appdata/controlroom` (`CR_BASE`):
 
-    scp scripts/deploy.sh <server>:   # oppure copiarlo a mano: serve solo per il primo 'prepare'
-    bash deploy.sh prepare             # cartelle e permessi, clone, CSV, .env con segreti generati
-    nano /appdata/controlroom/app/.env   # token GLPI, LDAP e gruppi, PORTAL_PUBLIC_URL
-    /appdata/controlroom/app/scripts/deploy.sh up          # controlli + build + app/postgres/grafana healthy
-    /appdata/controlroom/app/scripts/deploy.sh check-glpi  # search option verificate sul GLPI reale
-    /appdata/controlroom/app/scripts/deploy.sh sync        # solo se check-glpi = OK
+| Cartella | Contenuto | Permessi |
+|---|---|---|
+| `app/` | checkout git, **mai modificato a mano** (lo script rifiuta di procedere) | utente |
+| `config/` | `.env` (600) e `docker-compose.override.yml` generato | 700 |
+| `csv/` | `site_reparto.csv`, `excluded_tickets.csv` (modificabili; letti dal sync) | 755 |
+| `data/` | `audit/` (uid 10001), `postgres/` (70, 700), `grafana/` (472) | |
+| `backup/` | dump e archivi, anche automatici prima di ogni aggiornamento | 700 |
 
-Poi `status`, `backup` (pg_dump + archivio, permessi 600), `update` (git pull fast-forward + rebuild).
-Lo script rifiuta: `.env` incompleto, `DEV_AUTH`/`DEV_ROLES` attivi, `COOKIE_SECURE` spento, password del sync non
-alfanumerica, Compose < 2.24, subnet `172.30.99.0/28` già in uso, `sync` senza `check-glpi` riuscito o con impostazioni
-GLPI cambiate dopo il check. `check-glpi` confronta tabella e campo interni di GLPI (es. 17 → `glpi_tickets.solvedate`)
-e conta i ticket dell'entità; non scrive nulla.
-Il reverse proxy TLS davanti a `127.0.0.1:8000` resta da configurare a parte.
+Progetto Compose fisso `controlroom`: lo script agisce solo sui suoi container e sulle sue immagini.
+Nessun volume Docker nominato. Si installano **versioni** (tag git), non branch.
+
+### 1. Deploy key (una volta)
+Il server scarica il codice con una chiave SSH dedicata, **in sola lettura e solo su questo repository**
+(revocabile da GitHub in un clic). Sul server:
+
+    ssh-keygen -t ed25519 -N "" -C "deploy controlroom" -f ~/.ssh/controlroom_deploy && cat ~/.ssh/controlroom_deploy.pub
+
+Su GitHub: ControlRoom → Settings → Deploy keys → Add deploy key, **senza** "Allow write access". Poi:
+
+    cat >> ~/.ssh/config <<'FINE'
+    Host github-controlroom
+      HostName github.com
+      User git
+      IdentityFile ~/.ssh/controlroom_deploy
+      IdentitiesOnly yes
+    FINE
+    ssh -T github-controlroom    # atteso: "Hi pietro95/ControlRoom! You've successfully authenticated"
+
+### 2. Installazione
+Copiare `scripts/deploy.sh` sul server solo per il primo `prepare` (poi si usa quello in `app/`):
+
+    bash deploy.sh prepare                      # cartelle e permessi, clone, CSV, config/.env con segreti generati
+    nano /appdata/controlroom/config/.env       # vedi sotto
+    /appdata/controlroom/app/scripts/deploy.sh install v1.0.0
+    /appdata/controlroom/app/scripts/deploy.sh check-glpi
+    /appdata/controlroom/app/scripts/deploy.sh sync
+
+Da compilare in `config/.env`: `APP_PORT` (porta libera e non standard, lo script verifica che lo sia), `APP_BIND`
+(con Nginx Proxy Manager in container: l'IP con cui il container raggiunge l'host, di solito `172.17.0.1`),
+token GLPI, `LDAP_URL` e DN dei gruppi, `PORTAL_PUBLIC_URL` (`https://<nome DNS>`). **Attenzione**: `LDAP_*` e
+`PORTAL_PUBLIC_URL` hanno valori d'esempio, quindi non risultano "vuoti": vanno controllati a mano.
+
+`install <versione>`: backup se già installato → checkout del tag → controlli → build `controlroom:<versione>` →
+avvio → attesa di salute e di `/healthz` su `APP_BIND:APP_PORT` → pulizia delle immagini vecchie del progetto.
+Se il sync era attivo viene riavviato con la nuova immagine (salvo configurazione GLPI cambiata dopo `check-glpi`).
+Altri comandi: `status`, `backup [etichetta]`. Rollback: `install <tag precedente>` (+ ripristino del dump se serve).
+
+Lo script si ferma su: `.env` incompleto, `DEV_AUTH`/`DEV_ROLES` attivi, `COOKIE_SECURE` spento, password del sync non
+alfanumerica, Compose < 2.24, porta occupata, subnet `172.30.99.0/28` in uso, modifiche locali in `app/`, `sync`
+senza `check-glpi` riuscito o con impostazioni GLPI cambiate dopo il check.
+
+### 3. Nginx Proxy Manager
+Proxy Host → Domain `<nome DNS del portale>`, Scheme `http`, Forward Hostname/IP = `APP_BIND`, Forward Port =
+`APP_PORT`, "Block Common Exploits"; scheda SSL: certificato e "Force SSL". Grafana non va pubblicato: passa dal
+portale sotto `/grafana/`. Verifica dal server: `curl -H "Host: <nome DNS>" http://<APP_BIND>:<APP_PORT>/healthz`.
+
+### Rilascio di una versione
+Tag annotato sul commit di `main` approvato, mai spostato o riutilizzato: `git tag -a v1.0.0 -m "..." && git push origin v1.0.0`.
 
 ## Avvio manuale (sviluppo)
     cp .env.example .env   # compila tutto (password: openssl rand -hex 24)
