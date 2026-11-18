@@ -91,7 +91,8 @@ table.alarms{width:100%;border-collapse:collapse;font-size:16px}
 .alarms tr.grp.flap td:first-child{border-left-color:var(--warn)}
 .alarms tr.grp.multi{cursor:pointer}.alarms tr.grp:hover{background:var(--card2)}
 .alarms tr.item td{background:var(--bg);font-size:15px;border-top:1px dashed var(--bordo)}
-.alarms tr.item a{color:var(--tx)}
+.alarms tr.item a,.alarms a.tid{color:var(--tx)}
+.alarms a.tid{font-size:15px}
 .alarms .tog{width:26px;text-align:center;color:var(--mut);font-size:18px}
 .alarms .code{font-size:16px;white-space:nowrap}.alarms .nm{font-size:14px}
 .alarms .descr{min-width:220px;max-width:480px}
