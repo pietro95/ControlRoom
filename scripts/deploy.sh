@@ -14,7 +14,7 @@
 #   backup [etichetta]  pg_dump + archivio di audit, grafana, config (permessi 600) in backup/
 #
 # Struttura (CR_BASE, default /appdata/controlroom):
-#   app/      checkout git (deploy key in sola lettura, vedi README)   config/   .env (600), override, certs/ (700)
+#   app/      checkout git (deploy key in sola lettura, vedi docs/RUNBOOK.md) config/   .env (600), override, certs/ (700)
 #   csv/      mapping sito->reparto ed esclusioni, modificabili a mano  backup/   dump e archivi (700)
 #   data/     audit (uid 10001), postgres (70), grafana (472)
 #
@@ -77,7 +77,7 @@ cmd_prepare() {
   if [ -d "$APP/.git" ]; then
     ok "repository già presente ($(version))"
   else
-    git clone "$REPO_URL" "$APP" || die "clone fallito: deploy key e alias SSH configurati? (README, 'Deploy')"
+    git clone "$REPO_URL" "$APP" || die "clone fallito: deploy key e alias SSH configurati? (docs/RUNBOOK.md, §2)"
     ok "clonato ($(version))"
   fi
 
