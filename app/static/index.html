@@ -229,7 +229,8 @@ function renderGroup(g, rows) {
     h("td", { class: "nowrap" }, fmtWhen(g.last)),
     h("td", { class: "nowrap mut" }, multi ? fmtWhen(g.first) : ""),
     h("td", {}, g.acquedotto),
-    h("td", {}, h("div", { class: "code" }, g.code), h("div", { class: "nm" }, g.name), g.sito ? h("div", { class: "nm", title: "Posizione GLPI" }, g.sito) : null),
+    h("td", {}, h("div", { class: "code" }, g.code), h("div", { class: "nm" }, g.name), g.sito ? h("div", { class: "nm", title: "Posizione GLPI" }, g.sito) : null,
+      !multi && g.ids.length ? h("div", { class: "nm" }, h("a", { href: `${me.glpi_url}/front/ticket.form.php?id=${g.ids[0]}`, target: "_blank", rel: "noopener", onclick: (e) => e.stopPropagation(), title: "Apri il ticket in GLPI" }, "#" + g.ids[0])) : null),
     h("td", {}, h("span", { class: "badge " + (g.kind === "call" ? "call" : "alarm") }, g.categoria)),
     h("td", {}, g.kind === "call" ? h("span", { class: "mut" }, "—")
       : g.oggetto || g.tipo ? [h("div", {}, g.oggetto || "—"), g.tipo ? h("div", { class: "nm" }, g.tipo) : ""]
