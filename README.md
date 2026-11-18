@@ -111,6 +111,7 @@ Indice e autorità dei documenti: [docs/README.md](docs/README.md).
 | [`docs/SECURITY.md`](docs/SECURITY.md) | autenticazione, segreti, isolamento, dati |
 | [`docs/VERIFICHE.md`](docs/VERIFICHE.md) | cosa è verificato, cosa no, limiti noti |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | regole per contribuire |
+| [`CLAUDE.md`](CLAUDE.md) | regole operative per gli assistenti di sviluppo |
 
 ## Sicurezza e dati
 
