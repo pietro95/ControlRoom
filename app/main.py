@@ -306,7 +306,7 @@ def create_app() -> FastAPI:
             g["sito"] = g["sito"] or r.get("location", "")
             g["ids"].append(r["id"])
             g["items"].append({"id": r["id"], "opened": r["opened"], "descrizione": a.descrizione,
-                               "location": r.get("location", ""), "content": r.get("content", ""), "title": r["title"],
+                               "valore": a.valore, "soglia": a.soglia, "location": r.get("location", ""), "content": r.get("content", ""), "title": r["title"],
                                "taken": _taken(r), "tech": r.get("tech", []), "tech_keys": r.get("tech_keys", []),
                                "waiting": is_waiting(r.get("status"))})
             if r["opened"] and (not g["first"] or r["opened"] < g["first"]):

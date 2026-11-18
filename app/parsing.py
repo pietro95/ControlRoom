@@ -74,7 +74,7 @@ def _parse_measure(lines: list[str]) -> AlarmInfo | None:
     if not m:
         return None
     luogo, ogg, val, sog, tipo = (clean(m.group(k) or "") for k in ("luogo", "oggetto", "valore", "soglia", "tipo"))
-    descr = f"{tipo or 'Allarme'}: valore {val} (soglia {sog})"
+    descr = luogo  # valore e soglia hanno campi propri, mostrati a parte nell'interfaccia
     return AlarmInfo(tipo[:300], ogg, descr[:300], luogo[:300], val, sog)
 
 

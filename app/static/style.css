@@ -98,6 +98,7 @@ table.alarms{width:100%;border-collapse:collapse;font-size:16px}
 .alarms .descr{min-width:220px;max-width:480px}
 .alarms .actions{gap:6px;flex-wrap:nowrap}.alarms .actions .btn{flex:0 0 auto}
 .alarms .empty{padding:40px 0}
+.meas{font-weight:600;color:var(--err);white-space:nowrap}
 .nowrap{white-space:nowrap}.mut{color:var(--mut)}
 .note.open{display:flex;flex-direction:row;flex-wrap:wrap;gap:8px}.note.open input{flex:1 1 300px}
 tr.sec td{padding:14px 8px 6px;border-bottom:2px solid var(--line,#ccd);font-size:1.02em;background:transparent}

@@ -61,6 +61,9 @@ function fmtWhen(s) { // oggi -> "09:12"; altri giorni -> "16/11 09:12"
   const today = new Date().toLocaleDateString("sv-SE"); // AAAA-MM-GG locale
   return s.slice(0, 10) === today ? s.slice(11, 16) : `${s.slice(8, 10)}/${s.slice(5, 7)} ${s.slice(11, 16)}`;
 }
+// misura del telecontrollo: valore letto (ultimo ticket del gruppo) e soglia superata
+const meas = (g) => g.valore || g.soglia ? h("div", { class: "meas", title: "Valore segnalato / soglia" },
+  `${g.valore || "?"} / soglia ${g.soglia || "?"}`) : "";
 const label = (g) => `${g.code}${g.oggetto ? " · " + g.oggetto : ""}`;
 
 async function progress(target, text, wait) {
@@ -237,7 +240,7 @@ function renderGroup(g, rows) {
     h("td", {}, h("div", { class: "code" }, g.code), h("div", { class: "nm" }, g.name), g.sito ? h("div", { class: "nm", title: "Posizione GLPI" }, g.sito) : null),
     h("td", {}, h("span", { class: "badge " + (g.kind === "call" ? "call" : "alarm") }, g.categoria)),
     h("td", {}, g.kind === "call" ? h("span", { class: "mut" }, "—")
-      : g.oggetto || g.tipo ? [h("div", {}, g.oggetto || "—"), g.tipo ? h("div", { class: "nm" }, g.tipo) : ""]
+      : g.oggetto || g.tipo ? [h("div", {}, g.oggetto || "—"), g.tipo ? h("div", { class: "nm" }, g.tipo) : "", meas(g)]
       : h("span", { class: "mut", title: "Il testo dell'allarme non indica apparato né evento" }, "non indicato")),
     h("td", { class: "descr" }, g.waiting_count ? h("span", { class: "badge wait" }, g.waiting ? "In attesa" : `${g.waiting_count} in attesa`) : "",
       g.waiting_count ? " " : "", g.descrizione || h("span", { class: "mut" }, "(nessuna descrizione nel ticket)")),
@@ -253,7 +256,7 @@ function renderGroup(g, rows) {
       h("td", {}), h("td", { class: "nowrap" }, fmtWhen(it.opened)),
       h("td", { colspan: 5 }, tlink(it.id)),
       h("td", { class: "descr" }, it.waiting ? h("span", { class: "badge wait" }, "In attesa") : "", it.waiting ? " " : "",
-        it.descrizione || "—"), h("td", {}), h("td", {}, actions(t1))));
+        it.valore ? [h("span", { class: "meas" }, it.valore), " "] : "", it.descrizione || "—"), h("td", {}), h("td", {}, actions(t1))));
     if (note && note.key === k1) rows.push(noteRow(note));
   }
 }

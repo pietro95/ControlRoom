@@ -65,7 +65,7 @@ def test_parse_body_measure():
                          "Alert ON Soglia Massima")
     assert (a.luogo, a.oggetto, a.valore, a.soglia, a.tipo) == (
         "Serbatoio Cozzo della Guardia", "FIT005", "177.6375", "169 l/s", "Soglia Massima")
-    assert a.descrizione == "Soglia Massima: valore 177.6375 (soglia 169 l/s)"
+    assert a.descrizione == "Serbatoio Cozzo della Guardia"
     b = parse_alert_body("Vasca Nord - LT-01 (Valore: 0,4 | Soglia: 0,5 m) - ALERT Soglia Minima")
     assert (b.oggetto, b.tipo) == ("LT-01", "Soglia Minima")
     c = parse_alert_body("Pozzo 3\nAlert ON Mancanza rete")  # formato libero: il testo dopo ALERT ON resta
