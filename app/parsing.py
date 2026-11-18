@@ -52,6 +52,30 @@ class AlarmInfo:
     tipo: str
     oggetto: str
     descrizione: str
+    luogo: str = ""
+    valore: str = ""
+    soglia: str = ""
+
+
+# Formato misure del telecontrollo, anche spezzato su più righe:
+# "Serbatoio Cozzo della Guardia - FIT005 (Valore: 177.6375 | Soglia: 169 l/s) - Alert ON Soglia Massima"
+#  luogo                          oggetto  valore              soglia              tipo (soglia scattata)
+_MEASURE = re.compile(
+    r"^(?P<luogo>.+?)\s+-\s+(?P<oggetto>[A-Za-z0-9_./-]+)\s*"
+    r"\(\s*Valore\s*:\s*(?P<valore>[^|)]*?)\s*\|\s*Soglia\s*:\s*(?P<soglia>[^)]*?)\s*\)"
+    r"\s*-?\s*(?:ALERT(?:\s+(?:ON|OFF))?\b\s*(?P<tipo>.*?))?\s*$", re.I)
+# riga "Alert ON <testo>" senza i due punti: il testo dopo ALERT/ALERT ON è il tipo (es. "Soglia Massima").
+# "ALERT ON: ..." con i due punti è invece l'eco del titolo e si scarta.
+_ALERT_TAIL = re.compile(r"^\s*ALERT(?:\s+(?:ON|OFF)(?![A-Z]))?(?!\s*(?:ON|OFF)\s*:)\s*(?![:A-Z]*:)(.*?)\s*$", re.I)
+
+
+def _parse_measure(lines: list[str]) -> AlarmInfo | None:
+    m = _MEASURE.match(" ".join(lines))
+    if not m:
+        return None
+    luogo, ogg, val, sog, tipo = (clean(m.group(k) or "") for k in ("luogo", "oggetto", "valore", "soglia", "tipo"))
+    descr = f"{tipo or 'Allarme'}: valore {val} (soglia {sog})"
+    return AlarmInfo(tipo[:300], ogg, descr[:300], luogo[:300], val, sog)
 
 
 def body_text(content: str) -> list[str]:
@@ -66,14 +90,22 @@ def body_text(content: str) -> list[str]:
 
 
 def parse_alert_body(content: str) -> AlarmInfo:
+    lines = body_text(content)
+    meas = _parse_measure(lines)
+    if meas:
+        return meas
     found: dict[str, str] = {}
     free: list[str] = []
-    for line in body_text(content):
+    for line in lines:
         m = _LINE.match(line)
         field = _KEY_OF.get(m.group(1).strip().lower()) if m else None
         if field:
             found.setdefault(field, m.group(2)[:300])
-        elif not line.upper().startswith(("ALERT ON", "ALERT OFF")):
+        elif line.upper().startswith("ALERT"):
+            t = _ALERT_TAIL.match(line)
+            if t and t.group(1):
+                found.setdefault("tipo", t.group(1)[:300])  # "Alert ON Soglia Minima" -> tipo
+        else:
             free.append(line)
     descr = found.get("descrizione") or (free[0][:300] if free else "")
     return AlarmInfo(found.get("tipo", ""), found.get("oggetto", ""), descr)

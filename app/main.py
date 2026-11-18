@@ -300,6 +300,7 @@ def create_app() -> FastAPI:
                 "name": s.name if s else clean(r["title"])[:80], "acquedotto": s.acquedotto if s else "—",
                 "categoria": "Allarme",  # tutti i ticket "ALERT ON" (coda alert) sono allarmi di telecontrollo
                 "tipo": a.tipo, "oggetto": a.oggetto, "descrizione": a.descrizione, "sito": "",
+                "luogo": a.luogo, "valore": a.valore, "soglia": a.soglia,
                 "ids": [], "items": [], "first": r["opened"], "last": r["opened"],
             })
             g["sito"] = g["sito"] or r.get("location", "")
@@ -313,6 +314,7 @@ def create_app() -> FastAPI:
             if r["opened"] and (not g["last"] or r["opened"] >= g["last"]):
                 g["last"] = r["opened"]
                 g["descrizione"] = a.descrizione or g["descrizione"]  # la più recente
+                g["valore"] = a.valore or g["valore"]
         for r in calls:  # chiamate dal campo: una riga per ticket, mai raggruppate
             c = parse_call(r["title"], r.get("content", ""))
             if not c:
