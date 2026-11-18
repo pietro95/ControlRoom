@@ -59,6 +59,19 @@ def test_parse_body():
     assert parse_alert_body("").descrizione == ""
 
 
+def test_parse_body_measure():
+    from app.parsing import parse_alert_body
+    a = parse_alert_body("Serbatoio Cozzo della Guardia - FIT005 (Valore: 177.6375 | Soglia: 169 l/s) -<br>"
+                         "Alert ON Soglia Massima")
+    assert (a.luogo, a.oggetto, a.valore, a.soglia, a.tipo) == (
+        "Serbatoio Cozzo della Guardia", "FIT005", "177.6375", "169 l/s", "Soglia Massima")
+    assert a.descrizione == "Serbatoio Cozzo della Guardia"
+    b = parse_alert_body("Vasca Nord - LT-01 (Valore: 0,4 | Soglia: 0,5 m) - ALERT Soglia Minima")
+    assert (b.oggetto, b.tipo) == ("LT-01", "Soglia Minima")
+    c = parse_alert_body("Pozzo 3\nAlert ON Mancanza rete")  # formato libero: il testo dopo ALERT ON resta
+    assert (c.tipo, c.descrizione) == ("Mancanza rete", "Pozzo 3")
+
+
 def test_queue_grouping(client):
     login(client)
     mock_glpi.add_ticket("ALERT ON: FNC-IS00400-Campanella", "2026-11-17 09:10:00",

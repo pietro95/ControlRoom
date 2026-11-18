@@ -300,12 +300,13 @@ def create_app() -> FastAPI:
                 "name": s.name if s else clean(r["title"])[:80], "acquedotto": s.acquedotto if s else "—",
                 "categoria": "Allarme",  # tutti i ticket "ALERT ON" (coda alert) sono allarmi di telecontrollo
                 "tipo": a.tipo, "oggetto": a.oggetto, "descrizione": a.descrizione, "sito": "",
+                "luogo": a.luogo, "valore": a.valore, "soglia": a.soglia,
                 "ids": [], "items": [], "first": r["opened"], "last": r["opened"],
             })
             g["sito"] = g["sito"] or r.get("location", "")
             g["ids"].append(r["id"])
             g["items"].append({"id": r["id"], "opened": r["opened"], "descrizione": a.descrizione,
-                               "location": r.get("location", ""), "content": r.get("content", ""), "title": r["title"],
+                               "valore": a.valore, "soglia": a.soglia, "location": r.get("location", ""), "content": r.get("content", ""), "title": r["title"],
                                "taken": _taken(r), "tech": r.get("tech", []), "tech_keys": r.get("tech_keys", []),
                                "waiting": is_waiting(r.get("status"))})
             if r["opened"] and (not g["first"] or r["opened"] < g["first"]):
@@ -313,6 +314,7 @@ def create_app() -> FastAPI:
             if r["opened"] and (not g["last"] or r["opened"] >= g["last"]):
                 g["last"] = r["opened"]
                 g["descrizione"] = a.descrizione or g["descrizione"]  # la più recente
+                g["valore"] = a.valore or g["valore"]
         for r in calls:  # chiamate dal campo: una riga per ticket, mai raggruppate
             c = parse_call(r["title"], r.get("content", ""))
             if not c:
