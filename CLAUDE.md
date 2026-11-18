@@ -9,7 +9,7 @@ dashboard Grafana). GLPI resta il sistema di registrazione: il portale non deve 
 - `docs/REPORTING.md`: sync, regole KPI R1–R7, mapping reparti, dashboard. È il riferimento per i numeri.
 - `docs/ARCHITECTURE.md`: servizi, reti, regole di dipendenza.
 - `docs/SECURITY.md`: autenticazione, proxy Grafana, privilegi DB.
-- `docs/RUNBOOK.md`: produzione e `scripts/deploy.sh`.
+- `docs/RUNBOOK.md`: produzione, `scripts/deploy.sh`, utente di servizio e comando `controlroom`.
 - `docs/VERIFICHE.md`: cosa è provato e cosa no. **Nulla è mai stato provato contro GLPI e AD reali.**
 
 Se SPEC o REPORTING sono ambigui o in conflitto con la richiesta, fermati e chiedi. Non scegliere in silenzio.
@@ -21,7 +21,8 @@ Se SPEC o REPORTING sono ambigui o in conflitto con la richiesta, fermati e chie
 - Frontend: HTML/JS/CSS statici in `app/static/`, niente framework SPA, niente CDN (font in `app/static/vendor/`).
 - Audit locale SQLite; reporting su PostgreSQL 16; Grafana OSS 11.4.0 con provisioning.
 - Test: `pytest`, GLPI/LDAP/Grafana simulati (`mock/`), PostgreSQL reale temporaneo per KPI e worker.
-- Produzione: Docker Compose, progetto `controlroom`, `/appdata/controlroom`, dietro Nginx Proxy Manager.
+- Produzione: Docker Compose, progetto `controlroom`, `/appdata/controlroom`, dietro Nginx Proxy Manager; codice e
+  configurazione dell'utente di servizio `controlroom`, esercizio con il comando `controlroom` (mai lavoro come root).
 
 ## Comandi
 
@@ -33,7 +34,7 @@ uvicorn mock.mock_glpi:app --port 9000       # GLPI simulato
 GLPI_URL=http://localhost:9000 GLPI_APP_TOKEN=a GLPI_USER_TOKEN=u DEV_AUTH=1 \
   uvicorn app.main:create_app --factory --port 8000   # login: qualunque utente, password "dev"
 docker compose up -d --build                 # stack completo (serve .env)
-bash -n scripts/deploy.sh                    # sintassi dello script di deploy
+bash -n scripts/deploy.sh                    # sintassi degli script di deploy (anche controlroom.sh, installa_utente_servizio.sh)
 ```
 
 ## Struttura
@@ -44,7 +45,8 @@ app/          portale FastAPI: main.py (route), glpi.py (client), auth.py (LDAP/
 sync/         worker.py, rules.py, schema.sql (viste v_* = regole KPI), check_glpi.py
 db/init/      ruoli PostgreSQL cr_sync e grafana_ro
 grafana/      provisioning; dashboards/*.json GENERATI
-scripts/      deploy.sh, build_dashboards.py, gen_synthetic.py
+scripts/      deploy.sh, controlroom.sh (comando di esercizio), installa_utente_servizio.sh, build_dashboards.py,
+              gen_synthetic.py
 config/       CSV modificabili (site_reparto, excluded_tickets)
 mock/         GLPI e Grafana simulati
 tests/

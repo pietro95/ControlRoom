@@ -9,14 +9,18 @@ gestione-contratti. Le parti da adattare sono indicate come `<SEGNAPOSTO>`.
 - **Nessun impatto sugli altri container**: progetto Compose fisso `controlroom`; lo script agisce solo sui suoi
   container e sulle sue immagini; porta non standard; nessun volume Docker nominato.
 - **Si installano versioni** (tag git), mai branch, mai modifiche a mano del codice sul server.
+- **Nessuna dipendenza dall'amministratore di turno**: codice, configurazione e deploy key appartengono all'utente di
+  servizio `controlroom` (§3bis); ogni amministratore lancia `controlroom <sottocomando>` con il proprio utente e
+  sudo, e il lavoro gira come `controlroom`, mai come root.
 
 | Cartella | Contenuto | Permessi |
 |---|---|---|
-| `app/` | checkout git, **mai modificato a mano** (lo script rifiuta di procedere) | utente |
-| `config/` | `.env` (600), `docker-compose.override.yml` generato, `certs/` (CA interna per LDAPS) | 700 |
-| `csv/` | `site_reparto.csv`, `excluded_tickets.csv` (modificabili; letti dal sync) | 755 |
-| `data/` | `audit/` (uid 10001), `postgres/` (70, 700), `grafana/` (472) | |
-| `backup/` | dump e archivi, anche automatici prima di ogni aggiornamento | 700 |
+| `app/` | checkout git, **mai modificato a mano** (lo script rifiuta di procedere) | `controlroom` |
+| `config/` | `.env` (600), `docker-compose.override.yml` generato, `certs/` (CA interna per LDAPS) | `controlroom`, 700 |
+| `csv/` | `site_reparto.csv`, `excluded_tickets.csv` (modificabili; letti dal sync) | `controlroom`, 755 |
+| `data/` | `audit/` (uid 10001), `postgres/` (70, 700), `grafana/` (472): **mai cambiarne il proprietario** | container |
+| `backup/` | dump e archivi, anche automatici prima di ogni aggiornamento | `controlroom`, 700 |
+| `log/` | log degli aggiornamenti `AAAA.MM.GG_HHMM_aggiorna_<tag>.log` | `controlroom`, 750 |
 
 ## 1. Setup in GLPI (prima del primo avvio)
 
@@ -94,6 +98,55 @@ configurato non esiste.
 
 **`check-glpi`** verifica in sola lettura sul GLPI reale le search option `GLPI_SO_*`; solo se riesce abilita `sync`.
 
+## 3bis. Utente di servizio (una volta)
+
+Dopo il primo deploy (o sull'installazione esistente, dopo l'ultimo deploy fatto con `sudo`):
+
+```bash
+sudo /appdata/controlroom/app/scripts/installa_utente_servizio.sh
+```
+
+```bash
+controlroom stato
+```
+
+Lo script (idempotente, rilanciabile):
+
+- crea l'utente di sistema `controlroom` (shell `nologin`, home `/var/lib/controlroom`, gruppo `docker`) con
+  UID = GID, il primo libero **scendendo da 985** (`--uid-da <n>` per cambiarlo); si ferma se coincide con un UID dei
+  container (0, 70, 472, 10001). `gestcontratti` sta vicino a 990: i due non si sovrappongono;
+- copia la deploy key `controlroom_deploy` trovata in `/root/.ssh` o `/home/*/.ssh` (oppure `--chiave <file>`) e la
+  chiave host di `github.com` dal `known_hosts` accanto; scrive `~/.ssh/config` con l'alias dell'URL remoto
+  (`github-controlroom`);
+- assegna a `controlroom` solo `app/`, `config/`, `csv/`, `backup/` e la nuova `log/`; `data/` non viene toccata;
+- verifica come `controlroom`: lettura del `.env`, `docker ps`, `git ls-remote`; si ferma al primo errore;
+- crea `/usr/local/bin/controlroom` → `app/scripts/controlroom.sh`.
+
+**Attenzione**: il gruppo `docker` equivale a root sull'host. L'utente di servizio non ha login né password, ma
+chiunque possa diventare `controlroom` (via sudo) controlla Docker: è lo stesso livello di oggi, non inferiore.
+
+### Comando `controlroom`
+
+Si lancia con il proprio utente: chiede sudo, poi lavora come `controlroom` con ambiente pulito.
+
+| Sottocomando | Effetto |
+|---|---|
+| `stato` | `deploy.sh status` |
+| `aggiorna latest` | `git fetch --tags`, sceglie il tag `vX.Y.Z` più alto (tag malformati ignorati), mostra installata e nuova, chiede conferma, `deploy.sh install`; log in `log/` con chi l'ha lanciato |
+| `aggiorna <tag> [--si]` | come sopra con un tag esplicito (deve esistere); `--si` salta la conferma |
+| `backup [etichetta]` | `deploy.sh backup` |
+| `check-glpi`, `sync` | `deploy.sh check-glpi`, `deploy.sh sync` |
+| `ripristina` | elenca i dump in `backup/` |
+| `ripristina <file.dump> [--si]` | `deploy.sh restore`: backup di sicurezza, sync fermato, `pg_restore` in transazione unica, sync riavviato |
+| `log` / `log <servizio>` | ultimi log degli aggiornamenti / `docker compose logs` del servizio |
+| `aiuto` | elenco dei sottocomandi |
+
+Avvisa se non si è dentro `tmux` o `screen` (una connessione persa interrompe l'aggiornamento):
+
+```bash
+tmux new -s controlroom
+```
+
 ## 4. Comandi di `deploy.sh`
 
 | Comando | Effetto |
@@ -103,7 +156,9 @@ configurato non esiste.
 | `check-glpi` | verifica delle search option sul GLPI reale |
 | `sync` | avvia il worker (solo dopo `check-glpi` riuscito) e mostra stato ed esclusioni |
 | `status` | versione, servizi, ultima sincronizzazione |
-| `backup [etichetta]` | `pg_dump` + archivio di audit, grafana, config (permessi 600) in `backup/` |
+| `backup [etichetta]` | `pg_dump` + archivio di audit, grafana, config (permessi 600) in `backup/`; senza root il tar gira in un container usa e getta dell'immagine installata (senza rete, dati in sola lettura) |
+| `restore <file.dump>` | backup di sicurezza → sync fermato → `pg_restore --clean` del dump → sync riavviato (l'archivio `_files.tgz` si ripristina a mano) |
+| `logs [servizio]` | ultime 200 righe dei log dei container |
 
 **Lo script si ferma su**: `.env` incompleto, `DEV_AUTH`/`DEV_ROLES` attivi, `COOKIE_SECURE` spento,
 `LDAP_VALIDATE_TLS` spento, CA interna mancante, password del sync non alfanumerica, Compose < 2.24, porta occupata,
@@ -131,8 +186,29 @@ Rilascio: tag annotato sul commit di `main` approvato, mai spostato o riutilizza
 git tag -a <VERSIONE> -m "<NOTE>" && git push origin <VERSIONE>
 ```
 
-Aggiornamento: `deploy.sh install <VERSIONE>` (fa un backup prima). Rollback: `install <TAG_PRECEDENTE>`, più il
-ripristino manuale del dump in `backup/` se la versione nuova ha modificato lo schema `reporting`.
+Aggiornamento (fa un backup prima):
+
+```bash
+controlroom aggiorna latest
+```
+
+Rollback: reinstallare il tag precedente, più il ripristino del dump `pre_<VERSIONE>` in `backup/` se la versione
+nuova ha modificato lo schema `reporting`:
+
+```bash
+controlroom aggiorna <TAG_PRECEDENTE>
+```
+
+```bash
+controlroom ripristina <AAAA.MM.GG_HHMM_pre_VERSIONE_controlroom.dump>
+```
+
+Un tag precedente all'introduzione di `controlroom.sh` non contiene il comando: dopo il checkout il link
+`/usr/local/bin/controlroom` resta rotto. In quel caso, come utente di servizio:
+
+```bash
+sudo -u controlroom -H /appdata/controlroom/app/scripts/deploy.sh install <TAG>
+```
 
 ## 7. Dopo il primo avvio
 
