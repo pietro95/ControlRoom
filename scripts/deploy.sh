@@ -12,6 +12,10 @@
 #   sync                avvia il worker di sync (solo dopo check-glpi OK) e mostra stato ed esclusioni
 #   status              versione, servizi, ultima sincronizzazione
 #   backup [etichetta]  pg_dump + archivio di audit, grafana, config (permessi 600) in backup/
+#   restore <file.dump> backup di sicurezza -> sync fermato -> pg_restore del dump nel database -> sync riavviato
+#   logs [servizio]     ultime 200 righe dei log dei container
+#
+# In esercizio si usa il comando "controlroom" (scripts/controlroom.sh), che gira come utente di servizio.
 #
 # Struttura (CR_BASE, default /appdata/controlroom):
 #   app/      checkout git (deploy key in sola lettura, vedi docs/RUNBOOK.md) config/   .env (600), override, certs/ (700)
@@ -310,10 +314,39 @@ cmd_backup() {
   running postgres || die "postgres non in esecuzione: niente da salvare"
   (umask 077 && compose exec -T postgres pg_dump -U postgres -Fc controlroom > "$out/${ts}${label}_controlroom.dump")
   ok "${ts}${label}_controlroom.dump ($(du -h "$out/${ts}${label}_controlroom.dump" | cut -f1))"
-  $SUDO tar czf "$out/${ts}${label}_files.tgz" -C "$BASE" data/audit data/grafana config csv
-  $SUDO chown "$(id -u):$(id -g)" "$out/${ts}${label}_files.tgz" && chmod 600 "$out/${ts}${label}_files.tgz"
+  # data/audit (10001) e data/grafana (472) non sono leggibili dall'utente di servizio: senza root il tar gira in un
+  # container usa e getta dell'immagine installata, senza rete, con i dati montati in sola lettura.
+  if [ "$(id -u)" -eq 0 ]; then
+    (umask 077 && tar czf "$out/${ts}${label}_files.tgz" -C "$BASE" data/audit data/grafana config csv)
+  else
+    (umask 077 && docker run --rm --network none --user 0:0 -v "$BASE:/b:ro" -w /b --entrypoint tar \
+       "controlroom:$(version)" czf - data/audit data/grafana config csv > "$out/${ts}${label}_files.tgz") \
+      || die "archivio dei file fallito (immagine controlroom:$(version) presente?)"
+  fi
+  chmod 600 "$out/${ts}${label}_files.tgz"
   ok "${ts}${label}_files.tgz (contiene config/.env con i segreti)"
 }
+
+# ------------------------------------------------------------------ restore / logs
+# Solo il database di reporting (ricostruibile comunque dal sync). L'archivio _files.tgz si ripristina a mano.
+cmd_restore() {
+  [ $# -eq 1 ] || die "uso: deploy.sh restore <file.dump in backup/>"
+  local dump="$1" sync_on=false
+  [[ "$dump" == /* ]] || dump="$BASE/backup/$dump"
+  [ -f "$dump" ] || die "dump non trovato: $dump"
+  [[ "$dump" == *.dump ]] || die "serve un file .dump (pg_dump -Fc)"
+  running postgres || die "postgres non in esecuzione"
+  cmd_backup pre_ripristino
+  running sync && sync_on=true
+  if $sync_on; then compose stop sync; fi
+  say "Ripristino di $(basename "$dump")"
+  compose exec -T postgres pg_restore -U postgres -d controlroom --clean --if-exists --single-transaction < "$dump" \
+    || die "pg_restore fallito: database invariato (transazione unica); backup pre_ripristino in $BASE/backup"
+  ok "database ripristinato"
+  if $sync_on; then compose up -d --no-build sync; ok "sync riavviato"; fi
+}
+
+cmd_logs() { compose logs --tail 200 ${1:+"$1"}; }
 
 # Tutto dentro main, chiamata con "; exit $?" sulla STESSA riga: bash legge l'intera riga (e quindi main) prima di
 # eseguirla, ed esce senza leggere altro dal file. Bash legge gli script a mano a mano: se questo file venisse
@@ -328,7 +361,9 @@ main() {
     sync)       cmd_sync ;;
     status)     cmd_status ;;
     backup)     shift; cmd_backup "${1:-}" ;;
-    *) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+    restore)    shift; cmd_restore "$@" ;;
+    logs)       shift; cmd_logs "${1:-}" ;;
+    *) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; exit 2 ;;
   esac
 }
 

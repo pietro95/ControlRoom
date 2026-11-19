@@ -33,6 +33,17 @@ Docker reale (Grafana OSS 11.4.0, Postgres 16), con `DEV_AUTH=1` e GLPI non ragg
 - Grafana 11.4 reale nel compose, attraverso il proxy come manager: 5 dashboard caricate, 0 errori di query,
   0 pannelli "No data" sul periodo del dataset, Panoramica come home di `/stats`.
 
+### Utente di servizio e comando `controlroom`
+
+- Provati in container (non sul server): installazione da un amministratore con sudo, idempotente (due esecuzioni),
+  UID scelto scendendo da 985 saltando un utente occupato a 990; deploy key e chiave host copiate (600), proprietari
+  cambiati solo su `app/ config/ csv/ backup/ log/`, `data/postgres` (uid 70) intatta; verifiche `.env`, `docker ps`
+  (Docker finto) e `git ls-remote` (repository bare locale) come utente di servizio.
+- `controlroom` da un amministratore: rientra con sudo e il deploy (finto) gira come `controlroom`; `aggiorna latest`
+  sceglie `v1.10.0` tra `v1.0.0 v1.2.0 v1.9.0 v1.10.0 v.2.5.0 v2.0 v9.9.9-rc1`; "n" annulla; tag inesistente → errore;
+  stessa versione → nulla da fare; deploy fallito → codice ≠ 0 e rimando al rollback; log con chi l'ha lanciato;
+  avviso tmux assente fuori da tmux, assente dentro tmux nonostante sudo.
+
 ## Cosa non è verificato
 
 - **Mai provato contro il GLPI reale**: flusso, parametri di ricerca e forma delle risposte seguono la documentazione
@@ -45,6 +56,8 @@ Docker reale (Grafana OSS 11.4.0, Postgres 16), con `DEV_AUTH=1` e GLPI non ragg
 - **Login AD e ruoli**: bind UPN, query `memberOf:1.2.840.113556.1.4.1941:=<DN>` e mapping ruoli testati solo con una
   connessione LDAP simulata (`tests/test_roles.py`). Da verificare: ruolo ottenuto tramite gruppo annidato, DN in
   `.env` identici a quelli reali, tempi della query IN_CHAIN su alberi grandi.
+- **Utente di servizio sul server reale**: installazione, Docker reale (incluso `backup` con il tar in container usa
+  e getta e `restore` con `pg_restore`), accesso a GitHub con la deploy key vera.
 - Il filtro stato `notold` e la ricerca posizioni per testo (campo 1) vanno confermati sul GLPI aziendale.
 - **Sync, prima di fidarsi dei numeri**:
   - search option `GLPI_SO_*`: 19/17/16/15 sono standard, **23 (tipo soluzione), 24 (testo soluzione), 9 (origine) e
